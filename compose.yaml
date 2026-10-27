@@ -1,0 +1,35 @@
+services:
+  db:
+    image: postgres:17
+    environment:
+      POSTGRES_USER: atlas
+      POSTGRES_PASSWORD: atlas
+      POSTGRES_DB: atlas
+    ports:
+      - "127.0.0.1:5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U atlas -d atlas"]
+      interval: 2s
+      timeout: 3s
+      retries: 15
+  test-db:
+    image: postgres:17
+    profiles: ["test"]
+    environment:
+      POSTGRES_USER: atlas
+      POSTGRES_PASSWORD: atlas
+      POSTGRES_DB: atlas_test
+    ports:
+      - "127.0.0.1:5433:5432"
+    tmpfs:
+      - /var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U atlas -d atlas_test"]
+      interval: 2s
+      timeout: 3s
+      retries: 15
+
+volumes:
+  postgres_data:

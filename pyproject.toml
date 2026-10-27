@@ -9,7 +9,10 @@ description = "An evidence-backed research workspace"
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
+    "alembic>=1.15,<2",
     "fastapi>=0.115,<1",
+    "psycopg[binary]>=3.2,<4",
+    "sqlalchemy>=2.0,<3",
     "uvicorn>=0.34,<1",
 ]
 
@@ -25,3 +28,4 @@ where = ["src"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 addopts = "--import-mode=importlib"
+markers = ["database: requires PostgreSQL via TEST_DATABASE_URL"]

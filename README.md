@@ -6,7 +6,7 @@ Atlas is an open-source, agentic research workspace that investigates complex qu
 
 Unlike a conventional research chatbot that produces an answer and forgets its supporting work, Atlas is designed to preserve **sources, claims, relationships, and open questions**. Each investigation can reuse and challenge prior findings without treating generated text as ground truth.
 
-> **Status:** Early development. A minimal backend with a health endpoint is implemented. The research features below describe the intended architecture and roadmap.
+> **Status:** Early development. The backend provides a health endpoint and persistent workspace creation and retrieval. The research features below describe the intended architecture and roadmap.
 
 ## Local Development
 
@@ -26,7 +26,35 @@ curl --fail http://127.0.0.1:8000/health
 # {"status":"ok"}
 ```
 
-`GET /health` checks that the API process responds; it does not check database or model-provider readiness. No database, API keys, or external services are required yet.
+`GET /health` checks that the API process responds; it does not check database or model-provider readiness. Health checks run without a database. Workspace endpoints require PostgreSQL; no model API keys are needed.
+
+### Workspaces and PostgreSQL
+
+With Docker Compose installed, start the local database and apply migrations from the activated Python environment:
+
+```sh
+docker compose up -d --wait db
+cp .env.example .env
+set -a
+source .env
+set +a
+python -m alembic upgrade head
+python -m uvicorn atlas.main:app --reload
+```
+
+The application and migrations read `DATABASE_URL` from the process environment; `.env` is loaded explicitly above. The default URL matches the local Compose database. Compose credentials are for local development. Database files persist in a named volume across container restarts. Schema migrations run explicitly, not on API startup.
+
+Create a workspace, then retrieve it using the returned UUID:
+
+```sh
+curl --fail http://127.0.0.1:8000/workspaces \
+  -H 'Content-Type: application/json' -d '{"name":"Distributed Databases"}'
+curl --fail 'http://127.0.0.1:8000/workspaces/<returned-id>'
+```
+
+Creation returns HTTP 201 with `id`, `name`, and a timezone-aware `created_at`. Names are trimmed and must contain 1–200 characters. Invalid input returns 422; an unknown UUID returns 404. Names need not be unique.
+
+### Tests
 
 Run the tests from the same activated environment:
 
@@ -35,6 +63,16 @@ python -m pytest -q
 ```
 
 Tests cover the health response, unsupported HTTP methods, unknown routes, and starting the installed application with Uvicorn over a real local HTTP connection. The server test requires permission to bind a loopback socket and uses POSIX socket inheritance (macOS/Linux).
+
+Run the complete suite against a separate PostgreSQL test service:
+
+```sh
+docker compose --profile test up -d --wait test-db
+export TEST_DATABASE_URL=postgresql+psycopg://atlas:atlas@127.0.0.1:5433/atlas_test
+python -m pytest -q
+```
+
+Database tests skip explicitly when `TEST_DATABASE_URL` is unset. When it is set, an unavailable database fails the tests. The test role needs `CREATEDB`; each test migrates a uniquely named temporary database and drops only that database afterward. Tests verify migration upgrades and downgrades, schema/model agreement, persisted workspaces across application restarts, name validation, distinct IDs, and missing workspace responses.
 
 ## Why Atlas?
 
