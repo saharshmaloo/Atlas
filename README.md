@@ -85,6 +85,23 @@ Each passage records `id`, `source_id`, zero-based `position`, `start_char`, `en
 
 The fixed `paragraph-v1` algorithm produces non-overlapping spans of at most 1,000 characters, preferring the last blank-line boundary within the limit (LF or CRLF, with optional spaces/tabs on the blank line). Long paragraphs split at the character limit. Whitespace, BOM, and line endings are preserved. Passage UUIDs derive from the source ID, chunker version, and offsets, so retries keep IDs stable. Future chunker changes must use a new version and an explicit regeneration strategy; this endpoint does not replace existing passages.
 
+### Keyword Search
+
+Apply the latest migration with `python -m alembic upgrade head`. After uploading sources and generating passages, search within a workspace:
+
+```sh
+curl --fail --get 'http://127.0.0.1:8000/workspaces/<workspace-id>/search' \
+  --data-urlencode 'q=distributed transactions' --data-urlencode 'limit=10'
+```
+
+Search returns HTTP 200 with ranked passage records plus `source_title` and `score`. Each result includes the stable passage `id`, `source_id`, `position`, `start_char`, `end_char`, exact `text`, and `chunker_version` needed to trace it to the original source. Results are ordered by descending relevance, with source ID and passage position breaking ties consistently.
+
+Queries use PostgreSQL English full-text search: words are case-insensitive and stemmed, common stop words are ignored, and ordinary terms must all match within one passage. Quoted phrases, `OR`, and `-excluded` terms are supported. Search covers passage text, not source titles or sources without generated passages. It is keyword retrieval, so synonyms and meaning alone do not produce matches.
+
+`q` is required, limited to 500 characters, and must contain non-whitespace text without NUL characters. `limit` is 1–50 (default 10). Invalid parameters return 422, unknown workspaces return 404, and searches without matches return an empty array (including stop-word-only and punctuation-only queries). Relevance scores are relative ranking values, not confidence or factuality scores.
+
+A stored generated search vector and GIN index cover existing passages during migration and update automatically for new passage text. No external search service or API key is needed.
+
 ### Tests
 
 Run the tests from the same activated environment:

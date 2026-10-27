@@ -6,7 +6,8 @@ from uuid import UUID, uuid5
 
 from fastapi import APIRouter, HTTPException, Query
 from pydantic import BaseModel, ConfigDict
-from sqlalchemy import CheckConstraint, ForeignKey, String, Text, UniqueConstraint, func, select
+from sqlalchemy import CheckConstraint, Computed, ForeignKey, Index, String, Text, UniqueConstraint, func, select
+from sqlalchemy.dialects.postgresql import TSVECTOR
 from sqlalchemy.orm import Mapped, mapped_column
 
 from atlas.database import Base
@@ -38,6 +39,7 @@ class Passage(Base):
         CheckConstraint("position >= 0", name="passage_position_nonnegative"),
         CheckConstraint("start_char >= 0 AND end_char > start_char", name="passage_valid_span"),
         CheckConstraint("char_length(text) = end_char - start_char", name="passage_text_length"),
+        Index("ix_passages_search_vector", "search_vector", postgresql_using="gin"),
     )
 
     id: Mapped[UUID] = mapped_column(primary_key=True)
@@ -47,6 +49,9 @@ class Passage(Base):
     end_char: Mapped[int]
     text: Mapped[str] = mapped_column(Text)
     chunker_version: Mapped[str] = mapped_column(String(32))
+    search_vector: Mapped[str] = mapped_column(
+        TSVECTOR, Computed("to_tsvector('english'::regconfig, text)", persisted=True), deferred=True
+    )
 
 
 class PassageResponse(BaseModel):

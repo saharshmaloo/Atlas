@@ -10,6 +10,7 @@ from sqlalchemy.engine import URL
 
 from atlas.database import database_url
 from atlas.passages import router as passages_router
+from atlas.search import router as search_router
 from atlas.sources import UploadLimitMiddleware, router as sources_router
 from atlas.workspaces import router
 
@@ -37,6 +38,7 @@ def create_app(url: str | URL | None = None) -> FastAPI:
     app.include_router(router)
     app.include_router(sources_router)
     app.include_router(passages_router)
+    app.include_router(search_router)
     app.add_middleware(UploadLimitMiddleware)
     return app
 
