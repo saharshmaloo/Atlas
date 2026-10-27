@@ -6,7 +6,35 @@ Atlas is an open-source, agentic research workspace that investigates complex qu
 
 Unlike a conventional research chatbot that produces an answer and forgets its supporting work, Atlas is designed to preserve **sources, claims, relationships, and open questions**. Each investigation can reuse and challenge prior findings without treating generated text as ground truth.
 
-> **Status:** Planned / early development. This README describes the intended architecture and roadmap; the features below are not yet implemented.
+> **Status:** Early development. A minimal backend with a health endpoint is implemented. The research features below describe the intended architecture and roadmap.
+
+## Local Development
+
+Requires Python 3.12 or newer. From the repository root:
+
+```sh
+python3.12 -m venv .venv
+source .venv/bin/activate
+python -m pip install -e '.[dev]'
+python -m uvicorn atlas.main:app --reload
+```
+
+Visit <http://127.0.0.1:8000/docs> for interactive API documentation, or check liveness:
+
+```sh
+curl --fail http://127.0.0.1:8000/health
+# {"status":"ok"}
+```
+
+`GET /health` checks that the API process responds; it does not check database or model-provider readiness. No database, API keys, or external services are required yet.
+
+Run the tests from the same activated environment:
+
+```sh
+python -m pytest -q
+```
+
+Tests cover the health response, unsupported HTTP methods, unknown routes, and starting the installed application with Uvicorn over a real local HTTP connection. The server test requires permission to bind a loopback socket and uses POSIX socket inheritance (macOS/Linux).
 
 ## Why Atlas?
 
