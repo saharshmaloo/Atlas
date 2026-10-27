@@ -6,7 +6,7 @@ Atlas is an open-source, agentic research workspace that investigates complex qu
 
 Unlike a conventional research chatbot that produces an answer and forgets its supporting work, Atlas is designed to preserve **sources, claims, relationships, and open questions**. Each investigation can reuse and challenge prior findings without treating generated text as ground truth.
 
-> **Status:** Early development. The backend provides a health endpoint and persistent workspace creation and retrieval. The research features below describe the intended architecture and roadmap.
+> **Status:** Early development. The backend provides persistent workspaces and UTF-8 text source uploads, listing, and retrieval. The research features below describe the intended architecture and roadmap.
 
 ## Local Development
 
@@ -53,6 +53,22 @@ curl --fail 'http://127.0.0.1:8000/workspaces/<returned-id>'
 ```
 
 Creation returns HTTP 201 with `id`, `name`, and a timezone-aware `created_at`. Names are trimmed and must contain 1–200 characters. Invalid input returns 422; an unknown UUID returns 404. Names need not be unique.
+
+### Text Sources
+
+Apply the latest migration with `python -m alembic upgrade head`, then upload a UTF-8 `.txt` file into an existing workspace:
+
+```sh
+curl --fail 'http://127.0.0.1:8000/workspaces/<workspace-id>/sources' \
+  -F 'file=@notes.txt'
+curl --fail 'http://127.0.0.1:8000/workspaces/<workspace-id>/sources?limit=50&offset=0'
+curl --fail 'http://127.0.0.1:8000/workspaces/<workspace-id>/sources/<source-id>'
+curl --fail 'http://127.0.0.1:8000/workspaces/<workspace-id>/sources/<source-id>/content'
+```
+
+Uploads return HTTP 201 with `id`, `workspace_id`, `title`, `content_hash` (SHA-256 of the uploaded bytes), and `created_at`. The title is the filename with directory components removed, capped at 200 characters. Original UTF-8 contents, including BOM, line endings, and spacing, are preserved exactly in PostgreSQL and returned as `text/plain; charset=utf-8` by `/content`.
+
+Files are limited to 1 MiB; multipart requests are capped at 1 MiB + 64 KiB before parsing. Oversized uploads return 413. Unsupported extensions, invalid UTF-8, empty/whitespace-only files, and NUL characters return 422. Metadata lists contain no document contents and use `limit` (1–100, default 50) and `offset` (default 0). Unknown workspaces return 404; source retrieval returns 404 when a source is missing or belongs to a different workspace. Duplicate uploads are retained as separate sources with matching hashes. Workspace scoping is not user authentication.
 
 ### Tests
 
