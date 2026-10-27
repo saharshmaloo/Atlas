@@ -59,9 +59,9 @@ def test_migration_round_trip(database):
     command.downgrade(config, "base")
     engine = create_engine(url)
     try:
-        assert not {"workspaces", "sources"} & set(inspect(engine).get_table_names())
+        assert not {"workspaces", "sources", "passages"} & set(inspect(engine).get_table_names())
         command.upgrade(config, "head")
-        assert {"workspaces", "sources"} <= set(inspect(engine).get_table_names())
+        assert {"workspaces", "sources", "passages"} <= set(inspect(engine).get_table_names())
         command.check(config)
     finally:
         engine.dispose()

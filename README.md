@@ -70,6 +70,21 @@ Uploads return HTTP 201 with `id`, `workspace_id`, `title`, `content_hash` (SHA-
 
 Files are limited to 1 MiB; multipart requests are capped at 1 MiB + 64 KiB before parsing. Oversized uploads return 413. Unsupported extensions, invalid UTF-8, empty/whitespace-only files, and NUL characters return 422. Metadata lists contain no document contents and use `limit` (1–100, default 50) and `offset` (default 0). Unknown workspaces return 404; source retrieval returns 404 when a source is missing or belongs to a different workspace. Duplicate uploads are retained as separate sources with matching hashes. Workspace scoping is not user authentication.
 
+### Source Passages
+
+Apply the latest migration with `python -m alembic upgrade head`. Passage generation is explicit:
+
+```sh
+curl --fail -X POST 'http://127.0.0.1:8000/workspaces/<workspace-id>/sources/<source-id>/passages'
+curl --fail 'http://127.0.0.1:8000/workspaces/<workspace-id>/sources/<source-id>/passages?limit=50&offset=0'
+```
+
+Generation returns HTTP 200 with `source_id` and `passage_count`. Repeated or concurrent requests reuse existing passages. Listing returns an empty array before generation and ordered passages afterward; `limit` is 1–100 (default 50) and `offset` defaults to 0. Missing sources and sources outside the requested workspace return 404.
+
+Each passage records `id`, `source_id`, zero-based `position`, `start_char`, `end_char`, `text`, and `chunker_version`. Offsets count Unicode code points (Python string indexes), with an exclusive end; `source[start_char:end_char]` equals `text`. They are not UTF-8 byte or JavaScript UTF-16 offsets. Joining all passages in position order reproduces the original source exactly.
+
+The fixed `paragraph-v1` algorithm produces non-overlapping spans of at most 1,000 characters, preferring the last blank-line boundary within the limit (LF or CRLF, with optional spaces/tabs on the blank line). Long paragraphs split at the character limit. Whitespace, BOM, and line endings are preserved. Passage UUIDs derive from the source ID, chunker version, and offsets, so retries keep IDs stable. Future chunker changes must use a new version and an explicit regeneration strategy; this endpoint does not replace existing passages.
+
 ### Tests
 
 Run the tests from the same activated environment:

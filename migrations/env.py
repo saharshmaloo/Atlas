@@ -2,6 +2,7 @@ from alembic import context
 from sqlalchemy import create_engine, pool
 
 from atlas.database import Base, database_url
+from atlas.passages import Passage  # noqa: F401 -- register model metadata
 from atlas.sources import Source  # noqa: F401 -- register model metadata
 from atlas.workspaces import Workspace  # noqa: F401 -- register model metadata
 
