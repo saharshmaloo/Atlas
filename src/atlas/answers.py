@@ -6,10 +6,10 @@ from datetime import datetime
 from typing import Annotated, Literal, Protocol
 from uuid import UUID, uuid4
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, Header, HTTPException, Query
 from openai import APITimeoutError, OpenAI, OpenAIError
 from pydantic import BaseModel, Field, StringConstraints, ValidationError, field_validator
-from sqlalchemy import DateTime, ForeignKey, Index, String, func, select
+from sqlalchemy import DateTime, ForeignKey, Index, String, func, select, text
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -84,6 +84,14 @@ class AnswerRecord(Base):
     response: Mapped[dict] = mapped_column(JSONB, deferred=True)
 
 
+class AnswerSubmission(Base):
+    __tablename__ = 'answer_submissions'
+    workspace_id: Mapped[UUID] = mapped_column(ForeignKey('workspaces.id'), primary_key=True)
+    key: Mapped[str] = mapped_column(String(128), primary_key=True)
+    question: Mapped[str] = mapped_column(String(500))
+    answer_id: Mapped[UUID] = mapped_column(ForeignKey('answers.id'))
+
+
 class AnswerSummary(BaseModel):
     id: UUID
     workspace_id: UUID
@@ -108,7 +116,10 @@ def save_answer(workspace_id, question, response: AnswerResponse, session) -> Sa
         workspace_id=workspace_id, question=question, response=response.model_dump(mode="json")
     )
     session.add(record)
-    session.commit()
+    if session.info.get('answer_submission'):
+        session.flush()
+    else:
+        session.commit()
     session.refresh(record)
     return saved_response(record)
 
@@ -174,8 +185,7 @@ def insufficient_evidence() -> AnswerResponse:
     )
 
 
-@router.post("/answers", response_model=SavedAnswerResponse)
-def answer_question(
+def generate_answer(
     workspace_id: UUID,
     body: AnswerRequest,
     session: DatabaseSession,
@@ -192,7 +202,8 @@ def answer_question(
     # Questions retrieve any matching term; the keyword-search endpoint retains its AND semantics.
     query = " OR ".join(re.findall(r"[^\W_]+", body.question))
     evidence = retrieve_passages(workspace_id, session, query, MAX_EVIDENCE_PASSAGES)
-    session.rollback()  # Return the read connection to the pool before the provider call.
+    if not session.info.get('answer_submission'):
+        session.rollback()  # Keyed requests hold a transaction lock until atomic persistence.
     while evidence and len(context_json(body.question, evidence)) > MAX_CONTEXT_CHARS:
         evidence.pop()
     if not evidence:
@@ -217,6 +228,34 @@ def answer_question(
         claims=draft.claims, citations=[item for item in evidence if item.id in cited],
     )
     return finish(response)
+
+
+@router.post('/answers', response_model=SavedAnswerResponse)
+def answer_question(
+    workspace_id: UUID, body: AnswerRequest, session: DatabaseSession,
+    provider: Annotated[AnswerProvider, Depends(get_answer_provider)],
+    idempotency_key: Annotated[str | None, Header(min_length=1, max_length=128)] = None,
+):
+    if idempotency_key is None:
+        return generate_answer(workspace_id, body, session, provider)
+    require_workspace(workspace_id, session)
+    # PostgreSQL serializes retries, including concurrent requests, before any model call.
+    session.execute(text('SELECT pg_advisory_xact_lock(hashtextextended(:key, 0))'),
+                    {'key': f'{workspace_id}:{idempotency_key}'})
+    prior = session.get(AnswerSubmission, (workspace_id, idempotency_key))
+    if prior:
+        if prior.question != body.question:
+            raise HTTPException(409, 'Idempotency key was already used for another question')
+        return saved_response(session.get(AnswerRecord, prior.answer_id))
+    session.info['answer_submission'] = True
+    try:
+        result = generate_answer(workspace_id, body, session, provider)
+        session.add(AnswerSubmission(workspace_id=workspace_id, key=idempotency_key,
+                                     question=body.question, answer_id=result.id))
+        session.commit()
+        return result
+    finally:
+        session.info.pop('answer_submission', None)
 
 
 @router.get("/answers", response_model=list[AnswerSummary])
