@@ -1,0 +1,18 @@
+{
+  "version": "retrieval-v1",
+  "sources": {
+    "raft": "Raft replicates a log. A majority quorum commits transactions.",
+    "paxos": "Paxos uses a majority quorum to choose values.",
+    "spanner": "Spanner uses TrueTime for externally consistent transactions.",
+    "backup": "Backups preserve database snapshots for disaster recovery.",
+    "cats": "Cats sleep in warm places."
+  },
+  "queries": [
+    {"q": "replicated log", "relevant": ["raft"]},
+    {"q": "quorum", "relevant": ["raft", "paxos"]},
+    {"q": "TrueTime", "relevant": ["spanner"]},
+    {"q": "backup recovery", "relevant": ["backup"]},
+    {"q": "feline resting", "relevant": ["cats"]},
+    {"q": "astronaut", "relevant": []}
+  ]
+}
