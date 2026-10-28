@@ -67,3 +67,6 @@ input { width: 100%; padding: 13px; background: white; border: 1px solid #bccbb3
 .source-text { white-space: pre-wrap; overflow-wrap: anywhere; background: #fff; border: 1px solid #dce1d7; padding: 18px; max-height: 420px; overflow-y: auto; font: 13px/1.7 ui-monospace,monospace; }
 #passages article { border-top: 1px solid #dce1d7; margin-top: 24px; padding: 12px; }
 .selected { outline: 3px solid #a4732e; }
+#evidence-dialog { width: min(760px,calc(100% - 32px)); max-height: calc(100vh - 40px); overflow-y: auto; }
+#evidence-dialog h2, #evidence-dialog .mono { overflow-wrap: anywhere; }
+.claim { border-top: 1px solid #dce1d7; padding: 12px 0; }

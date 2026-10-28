@@ -45,6 +45,7 @@ function card(workspace) {
 }
 
 async function renderRoute() {
+  if ($('evidence-dialog').open) $('evidence-dialog').close();
   controller?.abort();
   controller = new AbortController();
   const signal = controller.signal;

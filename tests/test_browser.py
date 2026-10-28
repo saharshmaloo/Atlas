@@ -269,3 +269,38 @@ def test_question_duplicate_and_navigation(browser_page):
     page.get_by_role('link', name='All workspaces').click()
     expect(page.locator('#library')).to_be_visible()
     assert app.state.test_provider.calls == 0
+
+
+def test_citation_snapshot_and_keyboard_dismissal(browser_page):
+    from playwright.sync_api import expect
+    from atlas.answers import Claim, DraftAnswer
+    page, app = browser_page
+    prepare_evidence(page)
+    calls = []
+    def shared_claims(question, evidence):
+        calls.append(evidence[0])
+        return DraftAnswer(status='answered', claims=[
+            Claim(text='First <img> claim', passage_ids=[evidence[0].id]),
+            Claim(text='Second claim', passage_ids=[evidence[0].id]),
+        ])
+    app.state.test_provider.generate = shared_claims
+    ask(page)
+    buttons = page.locator('#answer .claim button')
+    expect(buttons).to_have_count(2)
+    buttons.first.click()
+    dialog = page.locator('#evidence-dialog')
+    expect(dialog).to_be_visible()
+    assert dialog.locator('pre').text_content() == calls[0].text
+    expect(dialog).to_contain_text(f'characters 0–{len(calls[0].text)}')
+    expect(dialog).to_contain_text('does not establish semantic support')
+    assert dialog.locator('script, img').count() == 0
+    expect(dialog.get_by_role('button', name='Close evidence')).to_be_focused()
+    page.keyboard.press('Escape')
+    expect(dialog).not_to_be_visible()
+    expect(buttons.first).to_be_focused()
+    buttons.nth(1).click()
+    expect(dialog.locator('pre')).to_have_text(calls[0].text)
+    page.route('**/sources/*', lambda route: route.fulfill(status=404, json={'detail': 'missing'}))
+    dialog.get_by_role('link', name='Open current source').click()
+    expect(page.locator('#notice')).to_contain_text('could not be found')
+    expect(dialog).not_to_be_visible()

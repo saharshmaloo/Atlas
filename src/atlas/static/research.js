@@ -7,6 +7,21 @@ const node = (tag, text, className) => {
 };
 const failure = (error) => error instanceof TypeError ? 'Could not reach Atlas. Please try again.' : error.message;
 const research = {
+  citation(base, citation) {
+    const dialog = $('evidence-dialog');
+    const title = node('h2', citation.source_title); title.id = 'evidence-title';
+    const close = node('button', 'Close evidence', 'secondary'); close.autofocus = true;
+    close.onclick = () => dialog.close();
+    const link = node('a', 'Open current source', 'text-link');
+    link.href = `#${base}/sources/${citation.source_id}?${new URLSearchParams({passage: citation.id, position: citation.position})}`;
+    link.onclick = () => dialog.close();
+    dialog.replaceChildren(node('p', 'SAVED CITATION SNAPSHOT', 'eyebrow'), title,
+      node('p', `Passage ${citation.position + 1} · Unicode characters ${citation.start_char}–${citation.end_char} (exclusive end)`),
+      node('p', citation.id, 'mono'), node('pre', citation.text, 'source-text'),
+      node('p', 'This evidence was saved with the answer. Citation membership does not establish semantic support for the claim.'),
+      link, node('p', 'The current source may have changed or be unavailable.'), close);
+    dialog.showModal();
+  },
   answer(root, base, answer) {
     root.replaceChildren(); root.dataset.answerId = answer.id;
     root.append(node('h3', answer.question), node('p', `${answer.status === 'answered' ? 'Answered' : 'Insufficient evidence'} · ${new Date(answer.created_at).toLocaleString()}`));
@@ -15,8 +30,8 @@ const research = {
       const row = node('article', undefined, 'claim'); row.append(node('p', claim.text));
       claim.passage_ids.forEach(id => {
         const citation = answer.citations.find(item => item.id === id);
-        const link = node('a', `Evidence: ${citation.source_title} · passage ${citation.position + 1}`, 'text-link');
-        link.href = `#${base}/sources/${citation.source_id}?${new URLSearchParams({passage: id, position: citation.position})}`;
+        const link = node('button', `Evidence: ${citation.source_title} · passage ${citation.position + 1}`, 'secondary');
+        link.onclick = () => this.citation(base, citation);
         row.append(link);
       });
       root.append(row);
