@@ -38,7 +38,7 @@ async function runView(root, base, id, signal) {
   const status = node('p'); status.setAttribute('role', 'status');
   const events = node('ol'); events.id = 'run-events';
   root.append(back, content, status, node('h3', 'Progress events'), events);
-  let pending = false, stream, serial = 0;
+  let pending = false, stream, serial = 0, lastEvent = 0;
   function render(run) {
     content.replaceChildren(node('h3', run.objective), node('p', `Run status: ${run.status}`),
       node('p', `Tools: ${run.tool_calls}/${run.budgets.max_tool_calls} · Model calls reserved: ${run.model_calls_reserved}/${run.budgets.max_model_calls} · Tokens reserved: ${run.tokens_reserved}/${run.budgets.max_model_tokens}`),
@@ -58,7 +58,7 @@ async function runView(root, base, id, signal) {
         if (pending) return; pending = true; render(run); status.textContent = 'Working…';
         try {
           const result = await api(`${url}/${name}`, {method: 'POST', signal});
-          if (!signal.aborted) { status.textContent = ''; run = result.run || result; }
+          if (!signal.aborted) { status.textContent = ''; run = result.run || result; if (name === 'resume') { stream?.close(); connect(); } }
         } catch (error) { if (!signal.aborted) status.textContent = failure(error); }
         finally { pending = false; if (!signal.aborted) render(run); }
       };
@@ -68,7 +68,8 @@ async function runView(root, base, id, signal) {
     if (['queued', 'running'].includes(run.status)) action('Run next task', 'step');
     if (['queued', 'running', 'failed'].includes(run.status)) action('Cancel run', 'cancel');
     if (['cancelled', 'failed'].includes(run.status)) action('Resume run', 'resume');
-    if (!['queued', 'running'].includes(run.status)) stream?.close();
+    if (!['queued', 'running'].includes(run.status) && lastEvent >= run.event_seq) stream?.close();
+    else if (stream?.readyState === EventSource.CLOSED) connect();
   }
   async function refresh() {
     const current = ++serial;
@@ -79,14 +80,19 @@ async function runView(root, base, id, signal) {
   }
   await refresh();
   if (signal.aborted) return;
-  stream = new EventSource(`${url}/events/stream`);
+  function connect() {
+  stream = new EventSource(`${url}/events/stream?after=${lastEvent}`);
   stream.addEventListener('progress', event => {
     if (signal.aborted) return;
     const item = JSON.parse(event.data);
+    if (item.sequence <= lastEvent) return;
+    lastEvent = item.sequence;
     events.append(node('li', `${item.sequence}. ${item.kind}${item.data.duration_ms !== undefined ? ' · ' + item.data.duration_ms + ' ms' : ''}`));
     while (events.children.length > 100) events.firstChild.remove();
     refresh();
   });
   stream.onerror = () => { if (!signal.aborted) status.textContent = 'Progress connection interrupted; reconnecting automatically.'; };
+  }
+  connect();
   signal.addEventListener('abort', () => stream.close(), {once: true});
 }

@@ -23,3 +23,19 @@ def test_planned_run_progress_reopen_and_controls(browser_page):
     expect(page.locator('#answer')).to_contain_text('Insufficient evidence')
     assert app.state.test_provider.calls == 0
     assert page.locator('#view-title img').count() == 0
+
+
+def test_resumed_run_reconnects_progress_stream(browser_page):
+    from playwright.sync_api import expect
+    page, _ = browser_page
+    create_workspace(page)
+    page.locator('#run-objective').fill('unmatched')
+    page.locator('#run-objective').press('Enter')
+    page.get_by_role('button', name='Cancel run', exact=True).click()
+    expect(page.locator('#run-detail')).to_contain_text('Run status: cancelled')
+    page.get_by_role('button', name='Resume run', exact=True).click()
+    expect(page.locator('#run-detail')).to_contain_text('Run status: queued')
+    page.get_by_role('button', name='Run next task', exact=True).click()
+    expect(page.locator('#run-detail')).to_contain_text('Run status: completed')
+    expect(page.locator('#run-events')).to_contain_text('task_completed')
+    assert page.evaluate('document.documentElement.scrollWidth <= innerWidth')

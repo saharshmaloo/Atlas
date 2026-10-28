@@ -86,6 +86,7 @@ class RunSummary(BaseModel):
     id: UUID
     workspace_id: UUID
     objective: str
+    event_seq: int
     plan_version: str | None
     budgets: RunBudgets
     model_calls_reserved: int
