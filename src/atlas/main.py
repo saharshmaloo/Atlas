@@ -12,6 +12,7 @@ from sqlalchemy import create_engine
 from sqlalchemy.engine import URL
 
 from atlas.embedding_api import router as embedding_router
+from atlas.event_stream import router as stream_router
 from atlas.events import router as events_router
 from atlas.hybrid import router as hybrid_router
 from atlas.answers import router as answers_router
@@ -65,6 +66,7 @@ def create_app(url: str | URL | None = None) -> FastAPI:
     app.include_router(control_router)
     app.include_router(planning_router)
     app.include_router(events_router)
+    app.include_router(stream_router)
     app.include_router(verification_router)
     app.add_middleware(UploadLimitMiddleware)
     static = Path(__file__).parent / "static"
