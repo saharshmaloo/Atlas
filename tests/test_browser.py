@@ -431,3 +431,26 @@ def test_sources_pagination_and_error_recovery(browser_page):
     page.unroute('**/passages')
     page.get_by_role('button', name='Generate passages', exact=True).click()
     expect(page.locator('#passages article')).to_have_count(1)
+
+
+def test_saved_claim_support_display(browser_page):
+    from playwright.sync_api import expect
+    from atlas.verification import get_claim_verifier
+    page, app = browser_page
+    prepare_evidence(page)
+    ask(page)
+    expect(page.locator('#claim-support')).to_contain_text('Not checked')
+    page.get_by_role('button', name='Check claim support', exact=True).click()
+    expect(page.locator('#claim-support')).to_contain_text('Claim 1: uncertain')
+    class Verifier:
+        identity = 'test-verifier-v1'
+        def verify(self, question, claims, citations):
+            return {'judgments': [{'claim_index': 0, 'status': 'unsupported',
+                'passage_ids': claims[0].passage_ids, 'explanation': '<img> Contradicted'}]}
+    app.dependency_overrides[get_claim_verifier] = Verifier
+    page.get_by_role('button', name='Check claim support', exact=True).click()
+    expect(page.locator('#claim-support')).to_contain_text('Claim 1: unsupported')
+    page.reload()
+    expect(page.locator('#claim-support')).to_contain_text('unsupported — <img> Contradicted')
+    assert page.locator('#claim-support img').count() == 0
+    assert app.state.test_provider.calls == 1

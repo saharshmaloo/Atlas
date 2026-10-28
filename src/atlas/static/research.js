@@ -72,6 +72,7 @@ const research = {
     root.replaceChildren(); root.dataset.answerId = answer.id;
     root.append(node('h3', answer.question), node('p', `${answer.status === 'answered' ? 'Answered' : 'Insufficient evidence'} · ${new Date(answer.created_at).toLocaleString()}`));
     if (answer.status === 'insufficient_evidence') root.append(node('p', 'Insufficient evidence in the saved passages. Add sources or try another question.'));
+    if (answer.provenance) root.append(node('p', `Generated with ${answer.provenance.provider || 'no provider'}${answer.provenance.model ? ' / ' + answer.provenance.model : ''} · ${answer.provenance.retrieval} · ${answer.provenance.duration_ms} ms`));
     answer.claims.forEach(claim => {
       const row = node('article', undefined, 'claim'); row.append(node('p', claim.text));
       claim.passage_ids.forEach(id => {
@@ -94,18 +95,19 @@ const research = {
     const answer = node('div'); answer.id = 'answer';
     form.append(label, input, submit, message);
     section.append(node('h3', 'Ask your sources'), form, answer); root.append(section);
-    if (saved) { input.value = saved.question; this.answer(answer, base, saved); }
-    let pending = false;
+    if (saved) { input.value = saved.question; this.answer(answer, base, saved); supportView(answer, base, saved, signal); }
+    let pending = false, requestKey, keyQuestion;
     input.oninput = () => input.setCustomValidity('');
     form.onsubmit = async event => {
       event.preventDefault();
       if (pending) return;
       const question = input.value.trim();
       if (!question || question.includes('\0')) { input.setCustomValidity('Enter a question without NUL characters.'); input.reportValidity(); return; }
+      if (keyQuestion !== question) { keyQuestion = question; requestKey = crypto.randomUUID(); }
       pending = true; submit.disabled = true; answer.replaceChildren(); message.textContent = 'Finding evidence and preparing an answer…';
       try {
         const result = await api(`${base}/answers`, {method: 'POST', signal,
-          headers: {'Content-Type': 'application/json'}, body: JSON.stringify({question})});
+          headers: {'Content-Type': 'application/json', 'Idempotency-Key': requestKey}, body: JSON.stringify({question})});
         if (signal.aborted) return;
         location.hash = `${base}/answers/${result.id}`;
       } catch (error) {
