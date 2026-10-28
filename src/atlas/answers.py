@@ -1,6 +1,7 @@
 import json
 import os
 import re
+from time import monotonic
 from datetime import datetime
 from typing import Annotated, Literal, Protocol
 from uuid import UUID, uuid4
@@ -56,9 +57,20 @@ class DraftAnswer(BaseModel):
     claims: list[Claim] = Field(max_length=10)
 
 
+class GenerationProvenance(BaseModel):
+    provider: str | None = None
+    model: str | None = None
+    retrieval: str = 'keyword-any-v1'
+    prompt_version: str = 'evidence-v1'
+    evidence_limit: int = MAX_EVIDENCE_PASSAGES
+    context_limit: int = MAX_CONTEXT_CHARS
+    duration_ms: int = Field(ge=0)
+
+
 class AnswerResponse(DraftAnswer):
     answer: str
     citations: list[SearchResult]
+    provenance: GenerationProvenance | None = None
 
 
 class AnswerRecord(Base):
@@ -125,6 +137,10 @@ def context_json(question: str, evidence: list[SearchResult]) -> str:
 
 
 class OpenAIAnswerProvider:
+    @property
+    def identity(self):
+        return {'provider': 'openai', 'model': os.environ.get('OPENAI_MODEL')}
+
     def generate(self, question, evidence):
         key, model = os.environ.get("OPENAI_API_KEY"), os.environ.get("OPENAI_MODEL")
         if not key or not model:
@@ -165,6 +181,14 @@ def answer_question(
     session: DatabaseSession,
     provider: Annotated[AnswerProvider, Depends(get_answer_provider)],
 ) -> SavedAnswerResponse:
+    started = monotonic()
+    used_provider = False
+
+    def finish(response):
+        identity = getattr(provider, 'identity', {'provider': type(provider).__name__, 'model': None}) if used_provider else {}
+        response.provenance = GenerationProvenance(**identity, duration_ms=int((monotonic() - started) * 1000))
+        return save_answer(workspace_id, body.question, response, session)
+
     # Questions retrieve any matching term; the keyword-search endpoint retains its AND semantics.
     query = " OR ".join(re.findall(r"[^\W_]+", body.question))
     evidence = retrieve_passages(workspace_id, session, query, MAX_EVIDENCE_PASSAGES)
@@ -172,8 +196,9 @@ def answer_question(
     while evidence and len(context_json(body.question, evidence)) > MAX_CONTEXT_CHARS:
         evidence.pop()
     if not evidence:
-        return save_answer(workspace_id, body.question, insufficient_evidence(), session)
+        return finish(insufficient_evidence())
     try:
+        used_provider = True
         draft = DraftAnswer.model_validate(provider.generate(body.question, evidence))
     except ProviderUnavailable:
         raise HTTPException(status_code=503, detail="Answer provider is not configured") from None
@@ -182,7 +207,7 @@ def answer_question(
     except (ProviderFailure, ValidationError):
         raise HTTPException(status_code=502, detail="Answer provider returned an invalid response") from None
     if draft.status == "insufficient_evidence" and not draft.claims:
-        return save_answer(workspace_id, body.question, insufficient_evidence(), session)
+        return finish(insufficient_evidence())
     allowed = {item.id for item in evidence}
     cited = {pid for claim in draft.claims for pid in claim.passage_ids}
     if draft.status != "answered" or not draft.claims or not cited <= allowed:
@@ -191,7 +216,7 @@ def answer_question(
         status="answered", answer="\n\n".join(claim.text for claim in draft.claims),
         claims=draft.claims, citations=[item for item in evidence if item.id in cited],
     )
-    return save_answer(workspace_id, body.question, response, session)
+    return finish(response)
 
 
 @router.get("/answers", response_model=list[AnswerSummary])
