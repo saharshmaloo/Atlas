@@ -1,7 +1,8 @@
 from typing import Annotated
 from uuid import UUID
 from fastapi import APIRouter, HTTPException, Query
-from sqlalchemy import func, select
+from sqlalchemy import exists, func, select
+from atlas.memory_state import ClaimRelation
 from atlas.memory import MemoryClaim, memory_response
 from atlas.search import SearchResult
 from atlas.sources import require_workspace
@@ -13,7 +14,7 @@ def retrieve_memory(workspace_id, session, q, limit):
     query = func.websearch_to_tsquery('english', q)
     vector = func.to_tsvector('english', MemoryClaim.text)
     claims = session.scalars(select(MemoryClaim).where(MemoryClaim.workspace_id == workspace_id,
-        vector.bool_op('@@')(query)).order_by(func.ts_rank_cd(vector, query).desc(), MemoryClaim.id).limit(limit))
+        vector.bool_op('@@')(query), ~exists(select(ClaimRelation.id).where(ClaimRelation.to_claim_id == MemoryClaim.id, ClaimRelation.kind == 'supersedes'))).order_by(func.ts_rank_cd(vector, query).desc(), MemoryClaim.id).limit(limit))
     return [memory_response(claim, session) for claim in claims]
 
 
@@ -21,6 +22,7 @@ def memory_passages(workspace_id, session, q, limit):
     """Reuse current original evidence only; never supply generated claims as source text."""
     results, seen = [], set()
     for claim in retrieve_memory(workspace_id, session, q, 20):
+        if claim.state != 'active': continue
         latest = {item.passage_id: item for item in claim.evidence}
         for edge in latest.values():
             if edge.verification_status != 'supported' or edge.freshness != 'current' or edge.passage_id in seen: continue

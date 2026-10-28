@@ -57,10 +57,19 @@ class MemoryResponse(BaseModel):
     text: str
     created_at: datetime
     kind: str = 'generated_interpretation'
+    state: str = 'active'
+    relations: list[dict] = []
     evidence: list[EvidenceResponse]
 
 
 def memory_response(claim, session):
+    from atlas.memory_state import ClaimRelation
+    from sqlalchemy import or_
+    relations = list(session.scalars(select(ClaimRelation).where(ClaimRelation.workspace_id == claim.workspace_id,
+        or_(ClaimRelation.from_claim_id == claim.id, ClaimRelation.to_claim_id == claim.id))
+        .order_by(ClaimRelation.created_at, ClaimRelation.id)))
+    state = 'superseded' if any(item.kind == 'supersedes' and item.to_claim_id == claim.id for item in relations) else 'contested' if any(item.kind == 'contradicts' for item in relations) else 'active'
+    relation_data = [{key: getattr(item, key) for key in ('id', 'from_claim_id', 'to_claim_id', 'kind', 'note', 'created_at')} for item in relations]
     evidence = []
     for edge in session.scalars(select(ClaimEvidence).where(ClaimEvidence.claim_id == claim.id)
             .order_by(ClaimEvidence.created_at, ClaimEvidence.id)):
@@ -73,7 +82,7 @@ def memory_response(claim, session):
                 Source.document_id == source.document_id))
             freshness = 'current' if source.version == latest and passage.text == edge.snapshot['text'] else 'superseded_source'
         evidence.append(EvidenceResponse.model_validate(edge).model_copy(update={'freshness': freshness}))
-    return MemoryResponse(**{key: getattr(claim, key) for key in ('id', 'workspace_id', 'answer_id', 'claim_index', 'text', 'created_at')}, evidence=evidence)
+    return MemoryResponse(**{key: getattr(claim, key) for key in ('id', 'workspace_id', 'answer_id', 'claim_index', 'text', 'created_at')}, evidence=evidence, state=state, relations=relation_data)
 
 
 router = APIRouter(prefix='/workspaces/{workspace_id}', tags=['research memory'])
