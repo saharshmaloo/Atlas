@@ -117,7 +117,20 @@ HTTP 200 responses contain `status`, `answer`, `claims` (each with `text` and `p
 
 If no passages match, the endpoint returns `status: "insufficient_evidence"` without calling the model. The model can also abstain with that status. Unknown workspaces return 404, invalid questions return 422, missing provider configuration returns 503, and provider timeouts return 504. Other provider failures return a generic 502 without exposing provider details.
 
-The OpenAI adapter uses the [Responses API with Structured Outputs](https://developers.openai.com/api/docs/guides/structured-outputs), a 30-second request timeout, no automatic retries, and a 1,600-token output cap. It sends `store=false`; answers are not persisted in Atlas yet. Tests use a fake provider and mocked SDK HTTP responses, so they need no API key and make no paid model calls. Live model quality and access are not covered by those tests.
+The OpenAI adapter uses the [Responses API with Structured Outputs](https://developers.openai.com/api/docs/guides/structured-outputs), a 30-second request timeout, no automatic retries, and a 1,600-token output cap. It sends `store=false`; validated answers are saved in Atlas's PostgreSQL database. Tests use a fake provider and mocked SDK HTTP responses, so they need no API key and make no paid model calls. Live model quality and access are not covered by those tests.
+
+### Answer History
+
+Apply the latest migration with `python -m alembic upgrade head`. Successful answer requests now also return `id`, `workspace_id`, the normalized `question`, and a timezone-aware `created_at`. Both answered and insufficient-evidence results are persisted before the request succeeds. Provider failures, invalid questions, and rejected model outputs do not create history records.
+
+```sh
+curl --fail 'http://127.0.0.1:8000/workspaces/<workspace-id>/answers?limit=50&offset=0'
+curl --fail 'http://127.0.0.1:8000/workspaces/<workspace-id>/answers/<answer-id>'
+```
+
+Listing returns summaries (`id`, `workspace_id`, `question`, `status`, `created_at`) newest first, with IDs breaking timestamp ties. `limit` is 1–100 (default 50), and `offset` defaults to 0. Detail retrieval returns the original answer, claims, and complete citation snapshots without calling a model or requiring provider credentials. Snapshots retain the passage text, offsets, and source title as they were when the answer was generated. Retrieving an unknown answer or one from another workspace returns 404.
+
+Repeated question submissions create separate history records and may make separate model calls. History preserves generated interpretations; it does not promote them to verified knowledge or establish that citations support the claims. Rolling back the history migration removes answer history while preserving existing workspaces, sources, and passages.
 
 ### Tests
 

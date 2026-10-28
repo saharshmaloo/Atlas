@@ -1,14 +1,20 @@
 import json
 import os
 import re
+from datetime import datetime
 from typing import Annotated, Literal, Protocol
-from uuid import UUID
+from uuid import UUID, uuid4
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from openai import APITimeoutError, OpenAI, OpenAIError
 from pydantic import BaseModel, Field, StringConstraints, ValidationError, field_validator
+from sqlalchemy import DateTime, ForeignKey, Index, String, func, select
+from sqlalchemy.dialects.postgresql import JSONB
+from sqlalchemy.orm import Mapped, mapped_column
 
+from atlas.database import Base
 from atlas.search import SearchResult, retrieve_passages
+from atlas.sources import require_workspace
 from atlas.workspaces import DatabaseSession
 
 MAX_EVIDENCE_PASSAGES = 5
@@ -37,6 +43,13 @@ class Claim(BaseModel):
     text: Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=2000)]
     passage_ids: list[UUID] = Field(min_length=1, max_length=5)
 
+    @field_validator("text")
+    @classmethod
+    def reject_nul(cls, value):
+        if "\x00" in value:
+            raise ValueError("Claim must not contain NUL characters")
+        return value
+
 
 class DraftAnswer(BaseModel):
     status: Literal["answered", "insufficient_evidence"]
@@ -46,6 +59,46 @@ class DraftAnswer(BaseModel):
 class AnswerResponse(DraftAnswer):
     answer: str
     citations: list[SearchResult]
+
+
+class AnswerRecord(Base):
+    __tablename__ = "answers"
+    __table_args__ = (Index("ix_answers_workspace_created", "workspace_id", "created_at", "id"),)
+
+    id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid4)
+    workspace_id: Mapped[UUID] = mapped_column(ForeignKey("workspaces.id"))
+    question: Mapped[str] = mapped_column(String(500))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    response: Mapped[dict] = mapped_column(JSONB, deferred=True)
+
+
+class AnswerSummary(BaseModel):
+    id: UUID
+    workspace_id: UUID
+    question: str
+    created_at: datetime
+    status: Literal["answered", "insufficient_evidence"]
+
+
+class SavedAnswerResponse(AnswerResponse, AnswerSummary):
+    pass
+
+
+def saved_response(record: AnswerRecord) -> SavedAnswerResponse:
+    return SavedAnswerResponse(
+        id=record.id, workspace_id=record.workspace_id, question=record.question,
+        created_at=record.created_at, **record.response,
+    )
+
+
+def save_answer(workspace_id, question, response: AnswerResponse, session) -> SavedAnswerResponse:
+    record = AnswerRecord(
+        workspace_id=workspace_id, question=question, response=response.model_dump(mode="json")
+    )
+    session.add(record)
+    session.commit()
+    session.refresh(record)
+    return saved_response(record)
 
 
 class ProviderUnavailable(Exception):
@@ -105,13 +158,13 @@ def insufficient_evidence() -> AnswerResponse:
     )
 
 
-@router.post("/answers", response_model=AnswerResponse)
+@router.post("/answers", response_model=SavedAnswerResponse)
 def answer_question(
     workspace_id: UUID,
     body: AnswerRequest,
     session: DatabaseSession,
     provider: Annotated[AnswerProvider, Depends(get_answer_provider)],
-) -> AnswerResponse:
+) -> SavedAnswerResponse:
     # Questions retrieve any matching term; the keyword-search endpoint retains its AND semantics.
     query = " OR ".join(re.findall(r"[^\W_]+", body.question))
     evidence = retrieve_passages(workspace_id, session, query, MAX_EVIDENCE_PASSAGES)
@@ -119,7 +172,7 @@ def answer_question(
     while evidence and len(context_json(body.question, evidence)) > MAX_CONTEXT_CHARS:
         evidence.pop()
     if not evidence:
-        return insufficient_evidence()
+        return save_answer(workspace_id, body.question, insufficient_evidence(), session)
     try:
         draft = DraftAnswer.model_validate(provider.generate(body.question, evidence))
     except ProviderUnavailable:
@@ -129,12 +182,43 @@ def answer_question(
     except (ProviderFailure, ValidationError):
         raise HTTPException(status_code=502, detail="Answer provider returned an invalid response") from None
     if draft.status == "insufficient_evidence" and not draft.claims:
-        return insufficient_evidence()
+        return save_answer(workspace_id, body.question, insufficient_evidence(), session)
     allowed = {item.id for item in evidence}
     cited = {pid for claim in draft.claims for pid in claim.passage_ids}
     if draft.status != "answered" or not draft.claims or not cited <= allowed:
         raise HTTPException(status_code=502, detail="Answer provider returned invalid citations")
-    return AnswerResponse(
+    response = AnswerResponse(
         status="answered", answer="\n\n".join(claim.text for claim in draft.claims),
         claims=draft.claims, citations=[item for item in evidence if item.id in cited],
     )
+    return save_answer(workspace_id, body.question, response, session)
+
+
+@router.get("/answers", response_model=list[AnswerSummary])
+def list_answers(
+    workspace_id: UUID,
+    session: DatabaseSession,
+    limit: Annotated[int, Query(ge=1, le=100)] = 50,
+    offset: Annotated[int, Query(ge=0)] = 0,
+) -> list[AnswerSummary]:
+    require_workspace(workspace_id, session)
+    query = (
+        select(
+            AnswerRecord.id, AnswerRecord.workspace_id, AnswerRecord.question,
+            AnswerRecord.created_at, AnswerRecord.response["status"].astext.label("status"),
+        )
+        .where(AnswerRecord.workspace_id == workspace_id)
+        .order_by(AnswerRecord.created_at.desc(), AnswerRecord.id.desc())
+        .limit(limit).offset(offset)
+    )
+    return [AnswerSummary.model_validate(row) for row in session.execute(query).mappings()]
+
+
+@router.get("/answers/{answer_id}", response_model=SavedAnswerResponse)
+def get_answer(workspace_id: UUID, answer_id: UUID, session: DatabaseSession) -> SavedAnswerResponse:
+    record = session.scalar(select(AnswerRecord).where(
+        AnswerRecord.id == answer_id, AnswerRecord.workspace_id == workspace_id,
+    ))
+    if record is None:
+        raise HTTPException(status_code=404, detail="Answer not found")
+    return saved_response(record)
