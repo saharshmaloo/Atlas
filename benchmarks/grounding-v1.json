@@ -1,0 +1,9 @@
+{
+  "version": "grounding-v1",
+  "cases": [
+    {"question": "transactions durable", "evidence": "Transactions are durable.", "claim": "Transactions are durable.", "support": "supported", "abstain": false},
+    {"question": "transactions durable", "evidence": "Transactions are not durable.", "claim": "Transactions are durable.", "support": "unsupported", "abstain": false},
+    {"question": "transactions durable", "evidence": "Transactions use logs.", "claim": "Transactions are durable.", "support": "uncertain", "abstain": false},
+    {"question": "astronaut", "evidence": "Transactions use logs.", "claim": null, "support": null, "abstain": true}
+  ]
+}

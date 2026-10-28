@@ -20,3 +20,15 @@ def retrieval_metrics(cases):
     mean = lambda values: sum(values) / len(values) if values else None
     return {'recall': mean(recall), 'mrr': mean(reciprocal), 'ndcg': mean(ndcg),
             'empty_query_accuracy': mean(empty)}
+
+
+def grounding_metrics(cases):
+    """Keep citation membership, support classification, and abstention separate."""
+    labeled = [case for case in cases if case['expected_support'] is not None]
+    supported = [case for case in labeled if case['predicted_support'] == 'supported']
+    return {
+        'citation_membership': sum(case['citations_valid'] for case in cases) / len(cases) if cases else None,
+        'support_accuracy': sum(case['predicted_support'] == case['expected_support'] for case in labeled) / len(labeled) if labeled else None,
+        'false_support_rate': sum(case['expected_support'] != 'supported' for case in supported) / len(supported) if supported else None,
+        'abstention_accuracy': sum(case['abstained'] == case['expected_abstain'] for case in cases) / len(cases) if cases else None,
+    }
