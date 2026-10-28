@@ -31,6 +31,9 @@ class ResearchTask(Base):
     kind: Mapped[str] = mapped_column(String(16))
     question: Mapped[str] = mapped_column(String(500))
     status: Mapped[str] = mapped_column(String(16), server_default='queued')
+    attempt: Mapped[int] = mapped_column(server_default='0')
+    lease_token: Mapped[UUID | None]
+    lease_until: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     output: Mapped[dict | None] = mapped_column(JSONB)
     error: Mapped[str | None] = mapped_column(String(200))
 
@@ -52,6 +55,8 @@ class TaskResponse(BaseModel):
     kind: str
     question: str
     status: State
+    attempt: int
+    lease_until: datetime | None
     output: dict | None
     error: str | None
 
