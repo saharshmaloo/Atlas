@@ -19,6 +19,7 @@ from atlas.passages import router as passages_router
 from atlas.search import router as search_router
 from atlas.sources import UploadLimitMiddleware, router as sources_router
 from atlas.verification_api import router as verification_router
+from atlas.vector_search import router as vector_router
 from atlas.web_ingest import router as web_router
 from atlas.workspaces import router
 
@@ -51,6 +52,7 @@ def create_app(url: str | URL | None = None) -> FastAPI:
     app.include_router(search_router)
     app.include_router(answers_router)
     app.include_router(embedding_router)
+    app.include_router(vector_router)
     app.include_router(verification_router)
     app.add_middleware(UploadLimitMiddleware)
     static = Path(__file__).parent / "static"
