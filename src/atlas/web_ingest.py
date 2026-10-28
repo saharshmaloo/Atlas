@@ -83,7 +83,7 @@ def ingest_web(workspace_id: UUID, body: WebRequest, session: DatabaseSession,
         content, title = extract_web(data, result['content_type'])
     except (ValueError, OSError):
         raise HTTPException(422, 'Cannot ingest this URL: use a public UTF-8 HTML/text document of at most 1 MiB') from None
-    source = Source(workspace_id=workspace_id, title=title or urlsplit(result['url']).hostname,
+    source = Source(workspace_id=workspace_id, title=(title or urlsplit(result['url']).hostname or 'Web source')[:200],
                     content=content, content_hash=sha256(data).hexdigest(), kind='web',
                     original_uri=result['url'], retrieved_at=datetime.now(timezone.utc),
                     extractor='html-text-v1', original_data=data)

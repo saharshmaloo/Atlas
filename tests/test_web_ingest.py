@@ -51,3 +51,13 @@ def test_web_refresh_creates_an_immutable_document_version(client):
     assert second['document_id'] == first['document_id'] and second['version'] == 2
     assert first['original_uri'] == 'https://example.org' and second['original_uri'] == 'https://example.org/new'
     assert len(client.get(f"{base}/{first['id']}/versions").json()) == 2
+
+
+@pytest.mark.database
+def test_titleless_long_host_is_bounded_before_storage(client):
+    ws = client.post('/workspaces', json={'name': 'Long hostname'}).json()['id']
+    host = '.'.join(['a' * 60] * 4)
+    client.app.dependency_overrides[get_web_fetcher] = lambda: lambda url: {
+        'url': url, 'content_type': 'text/plain', 'data': base64.b64encode(b'Public evidence').decode()}
+    response = client.post(f'/workspaces/{ws}/sources/web', json={'url': f'https://{host}/'})
+    assert response.status_code == 201 and response.json()['title'] == host[:200]
