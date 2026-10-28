@@ -361,3 +361,73 @@ def test_history_empty_pagination_and_abstention(browser_page):
     expect(page.locator('#answer')).to_contain_text('Insufficient evidence')
     expect(page.locator('#question')).to_have_value('Question 0')
     assert app.state.test_provider.calls == 0
+
+
+@pytest.mark.parametrize('width', [390, 1280])
+def test_complete_browser_research_workflow(browser_page, width, tmp_path):
+    from playwright.sync_api import expect
+    page, app = browser_page
+    page.set_viewport_size({'width': width, 'height': 900})
+    create_workspace(page, 'Evidence <img> library')
+    content = open_source(page, '😀 Transactions preserve evidence.\r\n\r\n  <img onerror=alert(1)>')
+    page.get_by_role('button', name='Generate passages', exact=True).click()
+    expect(page.locator('#passages article')).to_have_count(1)
+    passage_id = page.locator('#passages article').get_attribute('id').removeprefix('passage-')
+    page.get_by_role('link', name='Workspace sources').click()
+    page.locator('#search-query').fill('transactions')
+    page.locator('#search-query').press('Enter')
+    expect(page.locator('#search-results article')).to_have_count(1)
+    page.locator('#search-results a').click()
+    expect(page.locator(f'#passage-{passage_id}')).to_be_focused()
+    page.get_by_role('link', name='Workspace sources').click()
+    expect(page.locator('#search-query')).to_have_value('transactions')
+    ask(page)
+    expect(page.locator('#answer .claim')).to_have_count(1)
+    saved_url = page.url
+    page.locator('#answer .claim button').click()
+    expect(page.locator('#evidence-dialog pre')).to_have_text(content)
+    expect(page.locator('#evidence-dialog')).to_contain_text(passage_id)
+    assert page.evaluate('document.documentElement.scrollWidth <= innerWidth')
+    page.keyboard.press('Escape')
+    page.get_by_role('link', name='Workspace history').click()
+    page.locator('#answer-history a').click()
+    expect(page.locator('#answer .claim')).to_have_count(1)
+    assert page.url == saved_url
+    page.reload()
+    expect(page.locator('#answer .claim')).to_have_count(1)
+    assert app.state.test_provider.calls == 1
+    assert page.locator('#answer img, #view-title img').count() == 0
+    assert page.evaluate('document.documentElement.scrollWidth <= innerWidth')
+    screenshot = tmp_path / f'workflow-{width}.png'
+    page.screenshot(path=str(screenshot), full_page=True)
+    print(f'Browser review: {screenshot}')
+
+
+def test_sources_pagination_and_error_recovery(browser_page):
+    from playwright.sync_api import expect
+    page, _ = browser_page
+    create_workspace(page)
+    base = page.url.split('#')[1]
+    for i in range(12):
+        response = page.request.post(f'{base}/sources', multipart={
+            'file': {'name': f'source-{i}.txt', 'mimeType': 'text/plain', 'buffer': b'Transactions'}})
+        assert response.status == 201
+    page.reload()
+    expect(page.locator('#source-list a')).to_have_count(10)
+    page.get_by_role('button', name='Next sources', exact=True).click()
+    expect(page.locator('#source-list a')).to_have_count(2)
+    page.get_by_role('button', name='Previous sources', exact=True).click()
+    expect(page.locator('#source-list a')).to_have_count(10)
+    page.route('**/sources?*', lambda route: route.fulfill(status=500, json={'detail': 'failure'}))
+    page.reload()
+    expect(page.locator('#source-list')).to_contain_text('try again')
+    page.unroute('**/sources?*')
+    page.get_by_role('button', name='Retry sources', exact=True).click()
+    expect(page.locator('#source-list a')).to_have_count(10)
+    page.locator('#source-list a').first.click()
+    page.route('**/passages', lambda route: route.fulfill(status=500, json={'detail': 'failure'}))
+    page.get_by_role('button', name='Generate passages', exact=True).click()
+    expect(page.locator('#research [role=status]')).to_contain_text('try again')
+    page.unroute('**/passages')
+    page.get_by_role('button', name='Generate passages', exact=True).click()
+    expect(page.locator('#passages article')).to_have_count(1)

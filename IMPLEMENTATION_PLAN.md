@@ -1,10 +1,12 @@
-# Atlas remaining implementation plan
+# Atlas implementation plan
 
-## Starting point
+## Current status
 
 The backend already supports workspaces, UTF-8 text sources, deterministic passages, keyword search, cited answers, and answer history. Model responses have citation-ID validation; semantic claim verification is not implemented.
 
-The workspace UI is implemented but uncommitted: workspace creation, paginated listing, detail navigation, packaged static assets, and the workspace-list API. The latest automated run passed 96 tests against Docker PostgreSQL with warnings treated as errors. Chrome checks covered creation, blank-name validation, refresh, reopening, skip-to-content, and dialog dismissal. Mobile layout and broader failure scenarios still need browser checks.
+Milestone 1 is complete. The packaged browser UI covers workspace creation, source upload and inspection, passage generation, keyword search, cited answers, saved citation snapshots, and paginated answer history. Source and answer URLs support refresh and browser navigation.
+
+Verification: 115 tests passed against Docker PostgreSQL with warnings treated as errors, including wheel installation outside the checkout and a fake-provider Chromium regression harness. The full research flow passes at 390px and 1280px widths; screenshots at both widths were visually reviewed. Tests cover keyboard operation, untrusted text, validation, pagination, provider failures, stale navigation, immutable snapshots, and provider-free history retrieval. Live model quality, other browser engines, and physical mobile devices remain unverified.
 
 ## Commit rules
 
@@ -15,7 +17,7 @@ The workspace UI is implemented but uncommitted: workspace creation, paginated l
 - Preserve workspace isolation, exact source text, stable passage IDs, and citation snapshots throughout.
 - Sequence numbers express order, not permission to implement or publish the entire roadmap automatically.
 
-## Milestone 1: complete the browser research flow
+## Milestone 1: complete the browser research flow — complete
 
 Continue with the existing FastAPI-served HTML/CSS/JavaScript UI. A framework migration is a separate decision, not a prerequisite.
 
@@ -141,4 +143,4 @@ Plan separate commits for authenticated identity, workspace ownership/membership
 
 ## Recommended next action
 
-Finish and commit **01**, then implement **02**. Reach the browser-flow milestone before expanding model autonomy or retrieval infrastructure.
+Milestone 1 is complete. When work on milestone 2 is authorized, begin with **09**, PostgreSQL integration tests in CI.

@@ -58,7 +58,9 @@ Creation returns HTTP 201 with `id`, `name`, and a timezone-aware `created_at`. 
 
 After starting PostgreSQL, applying migrations, and running the API, open <http://127.0.0.1:8000/>. Create a workspace, browse the paginated library, and open a saved workspace. Workspace URLs use `/#/workspaces/<id>` and can be bookmarked or refreshed. The UI provides empty, loading, error, and retry states, keyboard-accessible controls, and a layout for mobile and desktop screens.
 
-The frontend is plain HTML, CSS, and JavaScript packaged with the Python application; no Node installation, build step, external fonts, or separate frontend server is required. API calls use the same origin. This first screen covers workspace creation and browsing; source, question, citation, and history screens are subsequent changes. `GET /workspaces` lists workspaces newest first, with stable ID tie-breaking and `limit` (1–100, default 24) and `offset` (default 0) parameters.
+The frontend is plain HTML, CSS, and JavaScript packaged with the Python application; no Node installation, build step, external fonts, or separate frontend server is required. API calls use the same origin. Inside a workspace, upload UTF-8 `.txt` documents, open the original text, and explicitly generate passages. Browse passage IDs and Unicode offsets, search those passages by keyword, and follow a ranked result to its original evidence. Search queries survive source navigation.
+
+Ask a question after generating evidence. Atlas displays saved claims and lets you inspect each citation snapshot in a keyboard-accessible dialog. Citation validation establishes membership in retrieved evidence, not semantic support. The server holds provider credentials; missing configuration, timeouts, invalid responses, and insufficient evidence have explicit UI states. Saved answers open at `/#/workspaces/<workspace-id>/answers/<answer-id>`; source URLs use `/sources/<source-id>`. Refresh and browser navigation restore either view. Newest-first history reopens answers and their original evidence without requiring provider credentials or another model call. `GET /workspaces` lists workspaces newest first, with stable ID tie-breaking and `limit` (1–100, default 24) and `offset` (default 0) parameters.
 
 ### Text Sources
 
@@ -157,6 +159,16 @@ python -m pytest -q
 ```
 
 Database tests skip explicitly when `TEST_DATABASE_URL` is unset. When it is set, an unavailable database fails the tests. The test role needs `CREATEDB`; each test migrates a uniquely named temporary database and drops only that database afterward. Tests verify migration upgrades and downgrades, schema/model agreement, persisted workspaces across application restarts, name validation, distinct IDs, and missing workspace responses.
+
+### Browser regression tests
+
+Install `python -m pip install -e '.[dev,browser]'` and run `python -m playwright install chromium` once. Start the disposable Compose test database as above, then run:
+
+```sh
+RUN_BROWSER_TESTS=1 TEST_DATABASE_URL=postgresql+psycopg://atlas:atlas@127.0.0.1:5433/atlas_test python -m pytest -q -W error
+```
+
+Browser tests start their own local HTTP server and migrate a unique temporary database per test. They cover the complete create → upload → generate → search → ask → inspect citation → reopen history flow at mobile and desktop widths, plus validation, request cancellation, provider errors, pagination, keyboard operation, and untrusted text. They use Chromium and require no personal data or provider credentials. Without `RUN_BROWSER_TESTS=1`, browser checks skip explicitly. The packaging test builds and installs a wheel in a temporary directory and checks its served assets outside the checkout.
 
 ## Why Atlas?
 
@@ -399,13 +411,3 @@ Atlas is also a hands-on exploration of three engineering areas:
 ## License
 
 License to be determined before public release.
-
-### Browser regression tests
-
-Install `python -m pip install -e '.[dev,browser]'` and run `python -m playwright install chromium` once. Start the disposable Compose test database as above, then run:
-
-```sh
-RUN_BROWSER_TESTS=1 TEST_DATABASE_URL=postgresql+psycopg://atlas:atlas@127.0.0.1:5433/atlas_test python -m pytest -q -W error
-```
-
-Browser tests start their own local HTTP server and migrate a unique temporary database per test. They use Chromium at a narrow viewport and require no personal data or provider credentials. Without `RUN_BROWSER_TESTS=1`, browser checks skip explicitly. The packaging test builds and installs a wheel in a temporary directory and checks its served assets outside the checkout.
