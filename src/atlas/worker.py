@@ -12,7 +12,7 @@ from atlas.answers import AnswerRequest, answer_question, get_answer_provider
 from atlas.database import database_url
 from atlas.embeddings import get_embedding_provider
 from atlas.reranking import get_reranker
-from atlas.runs import ResearchRun, ResearchTask, transition_task
+from atlas.runs import ResearchRun, ResearchTask, RunBudgets, transition_task
 from atlas.search import retrieve_passages
 
 
@@ -32,11 +32,31 @@ def claim_task(session, workspace_id, run_id):
     if run is None or run.status not in ('queued', 'running'):
         session.rollback(); return None
     now = session.scalar(select(func.now()))
+    budgets = RunBudgets.model_validate(run.budgets)
+    if run.started_at is None:
+        run.started_at, run.deadline_at = now, now + timedelta(seconds=budgets.max_seconds)
+    if now >= run.deadline_at:
+        run.status = 'budget_exhausted'; session.commit(); return None
+    active = session.scalar(select(func.count()).select_from(ResearchTask).where(
+        ResearchTask.run_id == run.id, ResearchTask.status == 'running', ResearchTask.lease_until > now))
+    if active >= budgets.max_concurrency:
+        session.rollback(); return None
     task = session.scalar(select(ResearchTask).where(ResearchTask.run_id == run.id,
         or_(ResearchTask.status == 'queued', and_(ResearchTask.status == 'running', ResearchTask.lease_until <= now)))
         .order_by(ResearchTask.position, ResearchTask.id).with_for_update(skip_locked=True).limit(1))
     if task is None:
         session.rollback(); return None
+    if task.attempt >= budgets.max_attempts:
+        task.status, task.error, run.status = 'failed', 'Attempt budget exhausted', 'failed'
+        task.lease_token = task.lease_until = None
+        session.commit(); return None
+    calls = int(task.kind in ('answer', 'verify'))
+    tokens = 52000 if task.kind == 'answer' else 196000 if task.kind == 'verify' else 0
+    if (run.tool_calls + 1 > budgets.max_tool_calls or run.model_calls_reserved + calls > budgets.max_model_calls
+        or run.tokens_reserved + tokens > budgets.max_model_tokens
+        or (calls and (run.deadline_at - now).total_seconds() < 31)):
+        run.status = 'budget_exhausted'; session.commit(); return None
+    run.tool_calls += 1; run.model_calls_reserved += calls; run.tokens_reserved += tokens
     if task.status == 'running': transition_task(task, 'queued')
     transition_task(task, 'running')
     task.attempt += 1; task.lease_token = uuid4(); task.lease_until = now + timedelta(seconds=120)
@@ -51,12 +71,15 @@ def finish_task(session, claim, output=None, error=None):
     task = session.scalar(select(ResearchTask).where(ResearchTask.id == claim.task_id).with_for_update())
     if task is None or task.lease_token != claim.token or task.status != 'running':
         session.rollback(); return False
-    transition_task(task, 'failed' if error else 'completed')
+    retry = error and task.attempt < RunBudgets.model_validate(run.budgets).max_attempts
+    transition_task(task, 'queued' if retry else 'failed' if error else 'completed')
     task.output, task.error = output, error
     task.lease_token = task.lease_until = None
     session.flush()
     states = list(session.scalars(select(ResearchTask.status).where(ResearchTask.run_id == run.id)))
     run.status = 'failed' if 'failed' in states else 'completed' if all(s == 'completed' for s in states) else 'running'
+    if run.deadline_at and session.scalar(select(func.now())) >= run.deadline_at:
+        run.status = 'budget_exhausted'
     session.commit()
     return True
 

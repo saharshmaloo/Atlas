@@ -11,13 +11,28 @@ from atlas.database import Base
 from atlas.sources import require_workspace
 from atlas.workspaces import DatabaseSession
 
-State = Literal['queued', 'running', 'completed', 'failed', 'cancelled']
+State = Literal['queued', 'running', 'completed', 'failed', 'cancelled', 'budget_exhausted']
+
+
+class RunBudgets(BaseModel):
+    max_attempts: int = Field(default=3, ge=1, le=5)
+    max_concurrency: int = Field(default=1, ge=1, le=4)
+    max_model_calls: int = Field(default=3, ge=0, le=100)
+    max_tool_calls: int = Field(default=8, ge=0, le=100)
+    max_seconds: int = Field(default=300, ge=1, le=3600)
+    max_model_tokens: int = Field(default=500000, ge=0, le=10000000)
 
 
 class ResearchRun(Base):
     __tablename__ = 'research_runs'
     id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid4)
     workspace_id: Mapped[UUID] = mapped_column(ForeignKey('workspaces.id'), index=True)
+    budgets: Mapped[dict] = mapped_column(JSONB)
+    model_calls_reserved: Mapped[int] = mapped_column(server_default='0')
+    tool_calls: Mapped[int] = mapped_column(server_default='0')
+    tokens_reserved: Mapped[int] = mapped_column(server_default='0')
+    started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    deadline_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     objective: Mapped[str] = mapped_column(String(500))
     status: Mapped[str] = mapped_column(String(16), server_default='queued')
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
@@ -39,6 +54,7 @@ class ResearchTask(Base):
 
 
 class RunRequest(BaseModel):
+    budgets: RunBudgets = Field(default_factory=RunBudgets)
     objective: str = Field(min_length=1, max_length=500)
 
     @field_validator('objective')
@@ -66,6 +82,12 @@ class RunSummary(BaseModel):
     id: UUID
     workspace_id: UUID
     objective: str
+    budgets: RunBudgets
+    model_calls_reserved: int
+    tool_calls: int
+    tokens_reserved: int
+    started_at: datetime | None
+    deadline_at: datetime | None
     status: State
     created_at: datetime
 
@@ -93,7 +115,7 @@ router = APIRouter(prefix='/workspaces/{workspace_id}/runs', tags=['research run
 @router.post('', response_model=RunDetail, status_code=201)
 def create_run(workspace_id: UUID, body: RunRequest, session: DatabaseSession):
     require_workspace(workspace_id, session)
-    run = ResearchRun(workspace_id=workspace_id, objective=body.objective)
+    run = ResearchRun(workspace_id=workspace_id, objective=body.objective, budgets=body.budgets.model_dump())
     session.add(run); session.flush()
     session.add(ResearchTask(run_id=run.id, position=0, kind='answer', question=body.objective))
     session.commit()
