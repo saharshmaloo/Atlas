@@ -23,7 +23,7 @@ def memory_passages(workspace_id, session, q, limit):
     results, seen = [], set()
     for claim in retrieve_memory(workspace_id, session, q, 20):
         if claim.state != 'active': continue
-        latest = {item.passage_id: item for item in claim.evidence}
+        latest = {item.passage_id: item for item in claim.evidence if item.verification_id == claim.latest_verification_id}
         for edge in latest.values():
             if edge.verification_status != 'supported' or edge.freshness != 'current' or edge.passage_id in seen: continue
             results.append(SearchResult.model_validate(edge.snapshot))

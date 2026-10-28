@@ -58,6 +58,7 @@ class MemoryResponse(BaseModel):
     created_at: datetime
     kind: str = 'generated_interpretation'
     state: str = 'active'
+    latest_verification_id: UUID | None = None
     relations: list[dict] = []
     evidence: list[EvidenceResponse]
 
@@ -68,6 +69,9 @@ def memory_response(claim, session):
     relations = list(session.scalars(select(ClaimRelation).where(ClaimRelation.workspace_id == claim.workspace_id,
         or_(ClaimRelation.from_claim_id == claim.id, ClaimRelation.to_claim_id == claim.id))
         .order_by(ClaimRelation.created_at, ClaimRelation.id)))
+    latest_verification = session.scalar(select(VerificationRecord).where(VerificationRecord.answer_id == claim.answer_id)
+        .order_by(VerificationRecord.created_at.desc(), VerificationRecord.id.desc()).limit(1))
+    latest_id = latest_verification.id if latest_verification else None
     state = 'superseded' if any(item.kind == 'supersedes' and item.to_claim_id == claim.id for item in relations) else 'contested' if any(item.kind == 'contradicts' for item in relations) else 'active'
     relation_data = [{key: getattr(item, key) for key in ('id', 'from_claim_id', 'to_claim_id', 'kind', 'note', 'created_at')} for item in relations]
     evidence = []
@@ -82,7 +86,9 @@ def memory_response(claim, session):
                 Source.document_id == source.document_id))
             freshness = 'current' if source.version == latest and passage.text == edge.snapshot['text'] else 'superseded_source'
         evidence.append(EvidenceResponse.model_validate(edge).model_copy(update={'freshness': freshness}))
-    return MemoryResponse(**{key: getattr(claim, key) for key in ('id', 'workspace_id', 'answer_id', 'claim_index', 'text', 'created_at')}, evidence=evidence, state=state, relations=relation_data)
+    if state == 'active' and latest_id and not any(edge.verification_id == latest_id for edge in evidence):
+        state = 'assessment_outdated'
+    return MemoryResponse(**{key: getattr(claim, key) for key in ('id', 'workspace_id', 'answer_id', 'claim_index', 'text', 'created_at')}, evidence=evidence, state=state, relations=relation_data, latest_verification_id=latest_id)
 
 
 router = APIRouter(prefix='/workspaces/{workspace_id}', tags=['research memory'])
