@@ -36,6 +36,7 @@ Do not put citation markers in claim text; use passage_ids only."""
 class AnswerRequest(BaseModel):
     retrieval: Literal["keyword", "hybrid"] = "keyword"
     rerank: bool = False
+    use_memory: bool = False
     question: Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=500)]
 
     @field_validator("question")
@@ -68,6 +69,7 @@ class GenerationProvenance(BaseModel):
     model: str | None = None
     retrieval: str = 'keyword-any-v1'
     reranker: str | None = None
+    memory_passage_count: int = Field(default=0, ge=0, le=5)
     prompt_version: str = 'evidence-v1'
     evidence_limit: int = MAX_EVIDENCE_PASSAGES
     context_limit: int = MAX_CONTEXT_CHARS
@@ -204,10 +206,11 @@ def generate_answer(
     used_provider = False
     retrieval_mode = "keyword-any-v1"
     ranking = None
+    memory_ids = set()
 
     def finish(response):
         identity = getattr(provider, 'identity', {'provider': type(provider).__name__, 'model': None}) if used_provider else {}
-        response.provenance = GenerationProvenance(**identity, retrieval=retrieval_mode, reranker=ranking, duration_ms=int((monotonic() - started) * 1000))
+        response.provenance = GenerationProvenance(**identity, retrieval=retrieval_mode, reranker=ranking, memory_passage_count=sum(item.id in memory_ids for item in evidence), duration_ms=int((monotonic() - started) * 1000))
         return save_answer(workspace_id, body.question, response, session)
 
     # Questions retrieve any matching term; the keyword-search endpoint retains its AND semantics.
@@ -217,6 +220,14 @@ def generate_answer(
             embedding_factory, vector_query=body.question)
     else:
         evidence = retrieve_passages(workspace_id, session, query, MAX_EVIDENCE_PASSAGES)
+    if body.use_memory:
+        from atlas.memory_retrieval import memory_passages
+        remembered = memory_passages(workspace_id, session, query, MAX_EVIDENCE_PASSAGES)
+        existing = {item.id for item in evidence}
+        for item in remembered:
+            if item.id not in existing and len(evidence) < MAX_EVIDENCE_PASSAGES:
+                evidence.append(item); existing.add(item.id); memory_ids.add(item.id)
+        if memory_ids: retrieval_mode += '+memory-v1'
     if body.rerank:
         evidence, ranking = rerank_candidates(body.question, evidence, reranker)
     if not session.info.get('answer_submission'):
@@ -261,10 +272,10 @@ def answer_question(
     # PostgreSQL serializes retries, including concurrent requests, before any model call.
     session.execute(text('SELECT pg_advisory_xact_lock(hashtextextended(:key, 0))'),
                     {'key': f'{workspace_id}:{idempotency_key}'})
-    request_hash = sha256(body.model_dump_json(exclude={'rerank'} if not body.rerank else set()).encode()).hexdigest()
+    request_hash = sha256(body.model_dump_json(exclude=({'rerank'} if not body.rerank else set()) | ({'use_memory'} if not body.use_memory else set())).encode()).hexdigest()
     prior = session.get(AnswerSubmission, (workspace_id, idempotency_key))
     if prior:
-        if prior.question != body.question or (prior.request_hash is not None and prior.request_hash != request_hash) or (prior.request_hash is None and (body.retrieval != 'keyword' or body.rerank)):
+        if prior.question != body.question or (prior.request_hash is not None and prior.request_hash != request_hash) or (prior.request_hash is None and (body.retrieval != 'keyword' or body.rerank or body.use_memory)):
             raise HTTPException(409, 'Idempotency key was already used for another question')
         return saved_response(session.get(AnswerRecord, prior.answer_id))
     session.info['answer_submission'] = True

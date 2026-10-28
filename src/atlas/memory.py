@@ -8,7 +8,8 @@ from sqlalchemy.dialects.postgresql import JSONB, insert
 from sqlalchemy.orm import Mapped, mapped_column
 from atlas.answers import get_answer
 from atlas.database import Base
-from atlas.sources import require_workspace
+from atlas.sources import Source, require_workspace
+from atlas.passages import Passage
 from atlas.verification_api import VerificationRecord
 from atlas.workspaces import DatabaseSession
 
@@ -43,6 +44,7 @@ class EvidenceResponse(BaseModel):
     verification_status: str
     verification_id: UUID | None
     snapshot: dict
+    freshness: str = 'unknown'
     created_at: datetime
 
 
@@ -59,9 +61,19 @@ class MemoryResponse(BaseModel):
 
 
 def memory_response(claim, session):
-    return MemoryResponse(**{key: getattr(claim, key) for key in ('id', 'workspace_id', 'answer_id', 'claim_index', 'text', 'created_at')},
-        evidence=list(session.scalars(select(ClaimEvidence).where(ClaimEvidence.claim_id == claim.id)
-            .order_by(ClaimEvidence.created_at, ClaimEvidence.id))))
+    evidence = []
+    for edge in session.scalars(select(ClaimEvidence).where(ClaimEvidence.claim_id == claim.id)
+            .order_by(ClaimEvidence.created_at, ClaimEvidence.id)):
+        row = session.execute(select(Passage, Source).join(Source).where(
+            Passage.id == edge.passage_id, Source.workspace_id == claim.workspace_id)).first()
+        freshness = 'missing'
+        if row:
+            passage, source = row
+            latest = session.scalar(select(func.max(Source.version)).where(Source.workspace_id == claim.workspace_id,
+                Source.document_id == source.document_id))
+            freshness = 'current' if source.version == latest and passage.text == edge.snapshot['text'] else 'superseded_source'
+        evidence.append(EvidenceResponse.model_validate(edge).model_copy(update={'freshness': freshness}))
+    return MemoryResponse(**{key: getattr(claim, key) for key in ('id', 'workspace_id', 'answer_id', 'claim_index', 'text', 'created_at')}, evidence=evidence)
 
 
 router = APIRouter(prefix='/workspaces/{workspace_id}', tags=['research memory'])
