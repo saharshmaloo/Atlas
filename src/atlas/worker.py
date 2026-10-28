@@ -85,7 +85,8 @@ def finish_task(session, claim, output=None, error=None, duration_ms=0):
     task.lease_token = task.lease_until = None
     session.flush()
     states = list(session.scalars(select(ResearchTask.status).where(ResearchTask.run_id == run.id)))
-    run.status = 'failed' if 'failed' in states else 'completed' if all(s == 'completed' for s in states) else 'running'
+    if run.status != 'budget_exhausted':
+        run.status = 'failed' if 'failed' in states else 'completed' if all(s == 'completed' for s in states) else 'running'
     if run.deadline_at and session.scalar(select(func.now())) >= run.deadline_at:
         run.status = 'budget_exhausted'
     emit_event(session, run, 'task_retried' if retry else 'task_failed' if error else 'task_completed',

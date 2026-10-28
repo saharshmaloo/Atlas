@@ -44,3 +44,13 @@ def test_attempt_budget_bounds_retries_and_sanitizes_errors(client):
     assert result['status'] == 'failed' and result['tasks'][0]['attempt'] == 2
     assert 'secret' not in result['tasks'][0]['error']
     assert result['model_calls_reserved'] == 2 and result['tokens_reserved'] == 104000
+
+
+def test_inflight_checkpoint_cannot_reactivate_exhausted_run(client):
+    from atlas.worker import finish_task
+    ws, base, saved = create(client, {'max_tool_calls': 1})
+    with Session(client.app.state.engine) as session:
+        claim = claim_task(session, UUID(ws), UUID(saved['id']))
+        session.execute(text("UPDATE research_runs SET status = 'budget_exhausted'")); session.commit()
+        assert finish_task(session, claim, output={'completed_reserved_work': True})
+    assert client.get(f"{base}/{saved['id']}").json()['status'] == 'budget_exhausted'
