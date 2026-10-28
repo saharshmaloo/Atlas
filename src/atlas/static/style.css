@@ -72,3 +72,4 @@ input { width: 100%; padding: 13px; background: white; border: 1px solid #bccbb3
 .claim { border-top: 1px solid #dce1d7; padding: 12px 0; }
 select { font: inherit; padding: 10px; border: 1px solid #bccbb3; border-radius: 6px; background: white; color: inherit; max-width: 100%; }
 input[type=checkbox] { width: auto; }
+#research h4 { overflow-wrap: anywhere; }

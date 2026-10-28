@@ -180,6 +180,7 @@ const research = {
     root.replaceChildren(back, node('h3', source.title), node('p', `Source version ${source.version} · ${source.kind}${source.original_uri ? ' · ' + source.original_uri + ' · Retrieved ' + new Date(source.retrieved_at).toLocaleString() : ''}${source.kind === 'pdf' ? ' · Extracted Unicode text; offsets are not PDF byte offsets. Page spans: ' + source.locations.map(loc => `page ${loc.page}: ${loc.start_char}–${loc.end_char}`).join(', ') : ''}`), node('h4', source.kind === 'pdf' ? 'Extracted source text' : 'Original source text'), original,
       node('h3', 'Passages'), node('p', 'Offsets count Unicode code points; the end offset is exclusive.'),
       generate, message, passages, pager);
+    sourceVersions(root, base, source, signal, params);
     let offset = Math.floor(Math.max(0, Number(params.get('position')) || 0) / 10) * 10;
     let pending = false, listing;
     async function load() {
