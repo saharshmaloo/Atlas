@@ -38,3 +38,16 @@ def test_ingest_persists_original_and_provenance_without_network(client):
     response = client.post(f'{base}/web', json={'url': 'http://localhost'})
     assert response.status_code == 422 and 'secret' not in response.text
     assert len(client.get(base).json()) == 1
+
+
+@pytest.mark.database
+def test_web_refresh_creates_an_immutable_document_version(client):
+    ws = client.post('/workspaces', json={'name': 'Web versions'}).json()['id']
+    base = f'/workspaces/{ws}/sources'
+    client.app.dependency_overrides[get_web_fetcher] = lambda: lambda url: {
+        'url': url, 'content_type': 'text/plain', 'data': base64.b64encode(b'Original web evidence').decode()}
+    first = client.post(f'{base}/web', json={'url': 'https://example.org'}).json()
+    second = client.post(f'{base}/web', json={'url': 'https://example.org/new', 'previous_source_id': first['id']}).json()
+    assert second['document_id'] == first['document_id'] and second['version'] == 2
+    assert first['original_uri'] == 'https://example.org' and second['original_uri'] == 'https://example.org/new'
+    assert len(client.get(f"{base}/{first['id']}/versions").json()) == 2

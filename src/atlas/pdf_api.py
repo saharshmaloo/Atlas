@@ -4,15 +4,17 @@ from uuid import UUID
 from fastapi import APIRouter, HTTPException, UploadFile
 from fastapi.responses import Response
 from atlas.pdf_extract import extract_pdf
-from atlas.sources import MAX_SOURCE_BYTES, Source, SourceResponse, find_source, require_workspace
+from atlas.sources import MAX_SOURCE_BYTES, Source, SourceResponse, assign_version, find_source, require_workspace
 from atlas.workspaces import DatabaseSession
 
 router = APIRouter(prefix='/workspaces/{workspace_id}/sources', tags=['PDF'])
 
 
 @router.post('/pdf', response_model=SourceResponse, status_code=201)
-def upload_pdf(workspace_id: UUID, file: UploadFile, session: DatabaseSession):
+def upload_pdf(workspace_id: UUID, file: UploadFile, session: DatabaseSession, previous_source_id: UUID | None = None):
     require_workspace(workspace_id, session)
+    previous = find_source(workspace_id, previous_source_id, session) if previous_source_id else None
+    if previous and previous.kind != 'pdf': raise HTTPException(409, 'Previous source must be a PDF')
     title = PurePosixPath((file.filename or '').replace('\\', '/')).name.strip()
     if not title.lower().endswith('.pdf') or len(title) > 200 or '\0' in title:
         raise HTTPException(422, 'Choose a PDF filename of at most 200 characters')
@@ -27,6 +29,7 @@ def upload_pdf(workspace_id: UUID, file: UploadFile, session: DatabaseSession):
     source = Source(workspace_id=workspace_id, title=title, kind='pdf', content=result['text'],
                     content_hash=sha256(data).hexdigest(), original_data=data,
                     locations=result['locations'], extractor=result['extractor'])
+    if previous: assign_version(source, previous, session)
     session.add(source); session.commit(); session.refresh(source)
     return source
 

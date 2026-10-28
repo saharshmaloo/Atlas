@@ -9,7 +9,7 @@ from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
-from atlas.sources import Source, SourceResponse, require_workspace
+from atlas.sources import Source, SourceResponse, assign_version, find_source, require_workspace
 from atlas.web_fetch import fetch_web
 from atlas.workspaces import DatabaseSession
 
@@ -59,6 +59,7 @@ def extract_web(data, mime):
 
 
 class WebRequest(BaseModel):
+    previous_source_id: UUID | None = None
     url: str = Field(min_length=1, max_length=2048)
 
 
@@ -73,6 +74,8 @@ router = APIRouter(prefix='/workspaces/{workspace_id}/sources', tags=['web'])
 def ingest_web(workspace_id: UUID, body: WebRequest, session: DatabaseSession,
                fetcher: Annotated[Callable, Depends(get_web_fetcher)]):
     require_workspace(workspace_id, session)
+    previous = find_source(workspace_id, body.previous_source_id, session) if body.previous_source_id else None
+    if previous and previous.kind != 'web': raise HTTPException(409, 'Previous source must be a webpage')
     session.rollback()
     try:
         result = fetcher(body.url)
@@ -84,5 +87,6 @@ def ingest_web(workspace_id: UUID, body: WebRequest, session: DatabaseSession,
                     content=content, content_hash=sha256(data).hexdigest(), kind='web',
                     original_uri=result['url'], retrieved_at=datetime.now(timezone.utc),
                     extractor='html-text-v1', original_data=data)
+    if previous: assign_version(source, previous, session)
     session.add(source); session.commit(); session.refresh(source)
     return source

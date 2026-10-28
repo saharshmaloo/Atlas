@@ -166,12 +166,9 @@ def get_content(workspace_id: UUID, source_id: UUID, session: DatabaseSession) -
 @router.post('/{source_id}/versions', response_model=SourceResponse, status_code=201)
 def add_version(workspace_id: UUID, source_id: UUID, file: UploadFile, session: DatabaseSession):
     previous = find_source(workspace_id, source_id, session)
-    session.execute(text('SELECT pg_advisory_xact_lock(hashtextextended(:key, 0))'),
-                    {'key': str(previous.document_id)})
-    version = session.scalar(select(func.max(Source.version)).where(
-        Source.workspace_id == workspace_id, Source.document_id == previous.document_id)) + 1
+    if previous.kind != 'text': raise HTTPException(409, 'Use the matching PDF or webpage ingestion endpoint for a new version')
     source = text_source(workspace_id, file)
-    source.document_id, source.version = previous.document_id, version
+    assign_version(source, previous, session)
     session.add(source); session.commit(); session.refresh(source)
     return source
 
@@ -192,3 +189,11 @@ def find_duplicates(workspace_id: UUID, source_id: UUID, session: DatabaseSessio
     return list(session.scalars(select(Source).where(Source.workspace_id == workspace_id,
         Source.content_hash == source.content_hash, Source.id != source.id)
         .order_by(Source.created_at, Source.id).offset(offset).limit(50)))
+
+
+def assign_version(source, previous, session):
+    session.execute(text('SELECT pg_advisory_xact_lock(hashtextextended(:key, 0))'),
+                    {'key': str(previous.document_id)})
+    version = session.scalar(select(func.max(Source.version)).where(
+        Source.workspace_id == previous.workspace_id, Source.document_id == previous.document_id)) + 1
+    source.document_id, source.version = previous.document_id, version
