@@ -7,9 +7,46 @@ const node = (tag, text, className) => {
 };
 const failure = (error) => error instanceof TypeError ? 'Could not reach Atlas. Please try again.' : error.message;
 const research = {
+  async search(root, base, params, signal) {
+    const section = node('section'); section.id = 'search';
+    const form = node('form');
+    const label = node('label', 'Search saved passages'); label.htmlFor = 'search-query';
+    const input = node('input'); input.id = 'search-query'; input.required = true; input.maxLength = 500;
+    input.value = params.get('q') || '';
+    const submit = node('button', 'Search', 'primary');
+    const results = node('div'); results.id = 'search-results'; results.setAttribute('role', 'status');
+    form.append(label, input, submit);
+    section.append(node('h3', 'Find evidence'), node('p', 'Keyword search covers generated passages. Ranking is not a confidence score.'), form, results);
+    root.append(section);
+    form.onsubmit = event => {
+      event.preventDefault();
+      const q = input.value.trim();
+      if (!q || q.includes('\0')) { input.setCustomValidity('Enter a search query without NUL characters.'); input.reportValidity(); return; }
+      const hash = `#${base}?${new URLSearchParams({q})}`;
+      if (location.hash === hash) renderRoute(); else location.hash = hash;
+    };
+    input.oninput = () => input.setCustomValidity('');
+    if (!input.value) return;
+    submit.disabled = true; results.textContent = 'Searching…';
+    try {
+      const items = await api(`${base}/search?${new URLSearchParams({q: input.value, limit: 50})}`, {signal});
+      if (signal.aborted) return;
+      results.replaceChildren(...items.map((passage, index) => {
+        const row = node('article');
+        const link = node('a', `${index + 1}. ${passage.source_title} · Passage ${passage.position + 1}`, 'text-link');
+        link.href = `#${base}/sources/${passage.source_id}?${new URLSearchParams({q: input.value, passage: passage.id, position: passage.position})}`;
+        row.append(link, node('p', `Characters ${passage.start_char}–${passage.end_char} · ${passage.id}`, 'mono'), node('pre', passage.text, 'source-text'));
+        return row;
+      }));
+      if (!items.length) results.textContent = 'No matching passages. Try other keywords or generate source passages.';
+    } catch (error) {
+      if (!signal.aborted) results.textContent = failure(error);
+    } finally { submit.disabled = false; }
+  },
+
   async source(root, base, id, signal, params) {
     const back = node('a', '← Workspace sources', 'back text-link');
-    back.href = `#${base}`;
+    back.href = `#${base}?${new URLSearchParams(params.has('q') ? {q: params.get('q')} : {})}`;
     root.append(back, node('p', 'Loading source…'));
     const [source, content] = await Promise.all([
       api(`${base}/sources/${id}`, {signal}), api(`${base}/sources/${id}/content`, {signal, text: true}),
@@ -77,7 +114,7 @@ const research = {
     const base = `/workspaces/${workspace.id}`;
     if (kind === 'sources') return this.source(root, base, id, signal, params);
     const heading = node('h3', 'Sources');
-    const form = node('form');
+    const form = node('form'); form.id = 'upload-form';
     const label = node('label', 'Upload a UTF-8 .txt file (up to 1 MiB)');
     label.htmlFor = 'source-file';
     const file = node('input');
@@ -142,5 +179,6 @@ const research = {
       }
     };
     await load();
+    if (!signal.aborted) await this.search(root, base, params, signal);
   },
 };

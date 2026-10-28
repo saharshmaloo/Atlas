@@ -87,7 +87,7 @@ def test_upload_validation_and_persistence(browser_page):
     for content, message in [(b'', 'nonempty'), (b'x' * 1048577, 'at most 1 MiB'),
                              (b'\xff', 'UTF-8'), (b'   ', 'must contain text')]:
         upload(page, content)
-        expect(page.locator('#research form')).to_contain_text(message)
+        expect(page.locator('#upload-form')).to_contain_text(message)
     upload(page, name='<img>.txt')
     expect(page.locator('#source-list')).to_contain_text('<img>.txt')
     page.reload()
@@ -151,3 +151,44 @@ def test_source_stale_response(browser_page):
     expect(page.locator('#research')).to_contain_text('Loading source')
     page.get_by_role('link', name='All workspaces').click()
     expect(page.locator('#library')).to_be_visible()
+
+
+def test_search_results_source_navigation_and_scoping(browser_page):
+    from playwright.sync_api import expect
+    page, _ = browser_page
+    create_workspace(page)
+    content = open_source(page, '😀 Transactions preserve evidence.\r\n<script>bad()</script>')
+    page.get_by_role('button', name='Generate passages', exact=True).click()
+    expect(page.locator('#passages article')).to_have_count(1)
+    page.get_by_role('link', name='Workspace sources').click()
+    page.locator('#search-query').fill('transactions')
+    page.locator('#search-query').press('Enter')
+    expect(page.locator('#search-results article')).to_have_count(1)
+    page.locator('#search-results a').click()
+    expect(page.locator('#passages .selected')).to_be_focused()
+    assert page.locator('#passages .selected pre').text_content() == content
+    page.get_by_role('link', name='Workspace sources').click()
+    expect(page.locator('#search-query')).to_have_value('transactions')
+    expect(page.locator('#search-results article')).to_have_count(1)
+    page.locator('#search-query').press('Enter')
+    expect(page.locator('#search-results article')).to_have_count(1)
+    page.locator('#search-query').fill('unfindable')
+    page.locator('#search-query').press('Enter')
+    expect(page.locator('#search-results')).to_contain_text('No matching passages')
+    create_workspace(page, 'No evidence here')
+    page.locator('#search-query').fill('transactions')
+    page.locator('#search-query').press('Enter')
+    expect(page.locator('#search-results')).to_contain_text('No matching passages')
+
+
+def test_search_failure_recovery(browser_page):
+    from playwright.sync_api import expect
+    page, _ = browser_page
+    create_workspace(page)
+    page.route('**/search?*', lambda route: route.fulfill(status=500, json={'detail': 'failure'}))
+    page.locator('#search-query').fill('evidence')
+    page.locator('#search-query').press('Enter')
+    expect(page.locator('#search-results')).to_contain_text('try again')
+    page.unroute('**/search?*')
+    page.locator('#search-query').press('Enter')
+    expect(page.locator('#search-results')).to_contain_text('No matching passages')
