@@ -7,7 +7,8 @@ from uuid import UUID, uuid4
 from fastapi import APIRouter, HTTPException, Query, UploadFile
 from fastapi.responses import PlainTextResponse
 from pydantic import BaseModel, ConfigDict
-from sqlalchemy import DateTime, ForeignKey, String, Text, UniqueConstraint, func, select, text
+from sqlalchemy import DateTime, ForeignKey, LargeBinary, String, Text, UniqueConstraint, func, select, text
+from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 from starlette.responses import JSONResponse
 
@@ -24,6 +25,9 @@ class Source(Base):
     document_id: Mapped[UUID] = mapped_column(default=uuid4)
     version: Mapped[int] = mapped_column(server_default='1')
     kind: Mapped[str] = mapped_column(String(16), server_default='text')
+    locations: Mapped[list] = mapped_column(JSONB, server_default='[]')
+    extractor: Mapped[str | None] = mapped_column(String(32))
+    original_data: Mapped[bytes | None] = mapped_column(LargeBinary, deferred=True)
     original_uri: Mapped[str | None] = mapped_column(String(2048))
     retrieved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
@@ -45,6 +49,8 @@ class SourceResponse(BaseModel):
     document_id: UUID
     version: int
     kind: str
+    locations: list[dict]
+    extractor: str | None
     original_uri: str | None
     retrieved_at: datetime | None
     created_at: datetime
@@ -60,7 +66,7 @@ class UploadLimitMiddleware:
         if (
             scope["type"] == "http"
             and scope["method"] == "POST"
-            and scope["path"].rstrip("/").endswith(("/sources", "/versions"))
+            and scope["path"].rstrip("/").endswith(("/sources", "/versions", "/pdf"))
         ):
             messages, size = [], 0
             while True:

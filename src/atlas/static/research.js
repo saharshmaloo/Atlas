@@ -63,7 +63,8 @@ const research = {
     link.onclick = () => dialog.close();
     dialog.replaceChildren(node('p', 'SAVED CITATION SNAPSHOT', 'eyebrow'), title,
       node('p', `Passage ${citation.position + 1} · Unicode characters ${citation.start_char}–${citation.end_char} (exclusive end)`),
-      node('p', citation.id, 'mono'), node('pre', citation.text, 'source-text'),
+      node('p', citation.id, 'mono'),
+      node('p', `Source version ${citation.source_version || 1} · ${citation.source_kind || 'text'}${citation.locations?.length ? ' · ' + citation.locations.map(loc => 'page ' + loc.page).join(', ') : ''}`), node('pre', citation.text, 'source-text'),
       node('p', 'This evidence was saved with the answer. Citation membership does not establish semantic support for the claim.'),
       link, node('p', 'The current source may have changed or be unavailable.'), close);
     dialog.showModal();
@@ -168,7 +169,7 @@ const research = {
     const previous = node('button', 'Previous passages', 'secondary');
     const next = node('button', 'Next passages', 'secondary');
     const pager = node('nav'); pager.setAttribute('aria-label', 'Passage pages'); pager.append(previous, next);
-    root.replaceChildren(back, node('h3', source.title), node('h4', 'Original source text'), original,
+    root.replaceChildren(back, node('h3', source.title), node('p', `Source version ${source.version} · ${source.kind}${source.kind === 'pdf' ? ' · Extracted Unicode text; offsets are not PDF byte offsets. Page spans: ' + source.locations.map(loc => `page ${loc.page}: ${loc.start_char}–${loc.end_char}`).join(', ') : ''}`), node('h4', source.kind === 'pdf' ? 'Extracted source text' : 'Original source text'), original,
       node('h3', 'Passages'), node('p', 'Offsets count Unicode code points; the end offset is exclusive.'),
       generate, message, passages, pager);
     let offset = Math.floor(Math.max(0, Number(params.get('position')) || 0) / 10) * 10;
@@ -225,10 +226,10 @@ const research = {
     if (kind === 'answers') return this.saved(root, base, id, signal);
     const heading = node('h3', 'Sources');
     const form = node('form'); form.id = 'upload-form';
-    const label = node('label', 'Upload a UTF-8 .txt file (up to 1 MiB)');
+    const label = node('label', 'Upload a UTF-8 .txt or text-based .pdf file (up to 1 MiB)');
     label.htmlFor = 'source-file';
     const file = node('input');
-    file.type = 'file'; file.id = 'source-file'; file.accept = '.txt'; file.required = true;
+    file.type = 'file'; file.id = 'source-file'; file.accept = '.txt,.pdf'; file.required = true;
     const submit = node('button', 'Upload source', 'primary');
     const message = node('p'); message.setAttribute('role', 'status');
     form.append(label, file, submit, message);
@@ -272,13 +273,13 @@ const research = {
       event.preventDefault();
       if (pending) return;
       const selected = file.files[0];
-      if (!selected || !/\.txt$/i.test(selected.name)) { message.textContent = 'Choose a .txt file.'; return; }
+      if (!selected || !/\.(txt|pdf)$/i.test(selected.name)) { message.textContent = 'Choose a .txt or .pdf file.'; return; }
       if (!selected.size || selected.size > 1048576) { message.textContent = 'Choose a nonempty file of at most 1 MiB.'; return; }
       pending = true; submit.disabled = file.disabled = true;
       message.textContent = 'Uploading…';
       const data = new FormData(); data.append('file', selected);
       try {
-        await api(`${base}/sources`, {method: 'POST', body: data, signal});
+        await api(`${base}/sources${/\.pdf$/i.test(selected.name) ? '/pdf' : ''}`, {method: 'POST', body: data, signal});
         if (signal.aborted) return;
         form.reset(); message.textContent = 'Source uploaded.';
         offset = 0; await load();

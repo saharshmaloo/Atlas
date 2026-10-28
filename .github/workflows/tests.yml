@@ -27,7 +27,7 @@ jobs:
           python-version: '3.12'
       - run: python -m pip install '.[dev]'
       - run: python -m alembic upgrade head
-      - run: python -m pytest -q -W error --ignore=tests/test_browser.py
+      - run: python -m pytest -q -W error -m 'not browser'
   browser:
     runs-on: ubuntu-latest
     services:
@@ -54,4 +54,4 @@ jobs:
       - run: python -m pip install '.[dev,browser]'
       - run: python -m playwright install --with-deps chromium
       - run: python -m alembic upgrade head
-      - run: python -m pytest -q -W error tests/test_browser.py tests/test_frontend.py tests/test_packaging.py
+      - run: python -m pytest -q -W error tests/test*browser*.py tests/test_frontend.py tests/test_packaging.py

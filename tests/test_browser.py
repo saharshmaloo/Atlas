@@ -10,7 +10,7 @@ import uvicorn
 from atlas.main import create_app
 from atlas.answers import Claim, DraftAnswer, get_answer_provider
 
-pytestmark = pytest.mark.database
+pytestmark = [pytest.mark.database, pytest.mark.browser]
 
 
 class FakeProvider:
