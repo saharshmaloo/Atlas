@@ -7,7 +7,7 @@ from uuid import UUID, uuid4
 from fastapi import APIRouter, HTTPException, Query, UploadFile
 from fastapi.responses import PlainTextResponse
 from pydantic import BaseModel, ConfigDict
-from sqlalchemy import DateTime, ForeignKey, String, Text, func, select
+from sqlalchemy import DateTime, ForeignKey, String, Text, UniqueConstraint, func, select, text
 from sqlalchemy.orm import Mapped, mapped_column
 from starlette.responses import JSONResponse
 
@@ -20,6 +20,12 @@ MAX_REQUEST_BYTES = MAX_SOURCE_BYTES + 64 * 1024
 
 class Source(Base):
     __tablename__ = "sources"
+    __table_args__ = (UniqueConstraint('workspace_id', 'document_id', 'version', name='source_document_version'),)
+    document_id: Mapped[UUID] = mapped_column(default=uuid4)
+    version: Mapped[int] = mapped_column(server_default='1')
+    kind: Mapped[str] = mapped_column(String(16), server_default='text')
+    original_uri: Mapped[str | None] = mapped_column(String(2048))
+    retrieved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
     id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid4)
     workspace_id: Mapped[UUID] = mapped_column(ForeignKey("workspaces.id"), index=True)
@@ -36,6 +42,11 @@ class SourceResponse(BaseModel):
     workspace_id: UUID
     title: str
     content_hash: str
+    document_id: UUID
+    version: int
+    kind: str
+    original_uri: str | None
+    retrieved_at: datetime | None
     created_at: datetime
 
 
@@ -49,7 +60,7 @@ class UploadLimitMiddleware:
         if (
             scope["type"] == "http"
             and scope["method"] == "POST"
-            and scope["path"].rstrip("/").endswith("/sources")
+            and scope["path"].rstrip("/").endswith(("/sources", "/versions"))
         ):
             messages, size = [], 0
             while True:
@@ -92,6 +103,12 @@ def find_source(workspace_id: UUID, source_id: UUID, session: DatabaseSession) -
 @router.post("", response_model=SourceResponse, status_code=201)
 def upload_source(workspace_id: UUID, file: UploadFile, session: DatabaseSession) -> Source:
     require_workspace(workspace_id, session)
+    source = text_source(workspace_id, file)
+    session.add(source); session.commit(); session.refresh(source)
+    return source
+
+
+def text_source(workspace_id, file):
     title = PurePosixPath((file.filename or "").replace("\\", "/")).name.strip()
     if not title.lower().endswith(".txt") or len(title) > 200 or "\x00" in title:
         raise HTTPException(
@@ -109,9 +126,6 @@ def upload_source(workspace_id: UUID, file: UploadFile, session: DatabaseSession
     source = Source(
         workspace_id=workspace_id, title=title, content=content, content_hash=sha256(data).hexdigest()
     )
-    session.add(source)
-    session.commit()
-    session.refresh(source)
     return source
 
 
@@ -141,3 +155,24 @@ def get_source(workspace_id: UUID, source_id: UUID, session: DatabaseSession) ->
 @router.get("/{source_id}/content", response_class=PlainTextResponse)
 def get_content(workspace_id: UUID, source_id: UUID, session: DatabaseSession) -> PlainTextResponse:
     return PlainTextResponse(find_source(workspace_id, source_id, session).content)
+
+
+@router.post('/{source_id}/versions', response_model=SourceResponse, status_code=201)
+def add_version(workspace_id: UUID, source_id: UUID, file: UploadFile, session: DatabaseSession):
+    previous = find_source(workspace_id, source_id, session)
+    session.execute(text('SELECT pg_advisory_xact_lock(hashtextextended(:key, 0))'),
+                    {'key': str(previous.document_id)})
+    version = session.scalar(select(func.max(Source.version)).where(
+        Source.workspace_id == workspace_id, Source.document_id == previous.document_id)) + 1
+    source = text_source(workspace_id, file)
+    source.document_id, source.version = previous.document_id, version
+    session.add(source); session.commit(); session.refresh(source)
+    return source
+
+
+@router.get('/{source_id}/versions', response_model=list[SourceResponse])
+def list_versions(workspace_id: UUID, source_id: UUID, session: DatabaseSession,
+                  offset: Annotated[int, Query(ge=0)] = 0):
+    source = find_source(workspace_id, source_id, session)
+    return list(session.scalars(select(Source).where(Source.workspace_id == workspace_id,
+        Source.document_id == source.document_id).order_by(Source.version).offset(offset).limit(50)))
