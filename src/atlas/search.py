@@ -27,8 +27,12 @@ def search_passages(
     q = q.strip()
     if not q or "\x00" in q:
         raise HTTPException(status_code=422, detail="Query must contain text and no NUL characters")
+    return retrieve_passages(workspace_id, session, q, limit)
+
+
+def retrieve_passages(workspace_id, session, query_text: str, limit: int) -> list[SearchResult]:
     require_workspace(workspace_id, session)
-    terms = func.websearch_to_tsquery("english", q)
+    terms = func.websearch_to_tsquery("english", query_text)
     score = func.ts_rank_cd(Passage.search_vector, terms).label("score")
     query = (
         select(

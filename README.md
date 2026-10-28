@@ -6,7 +6,7 @@ Atlas is an open-source, agentic research workspace that investigates complex qu
 
 Unlike a conventional research chatbot that produces an answer and forgets its supporting work, Atlas is designed to preserve **sources, claims, relationships, and open questions**. Each investigation can reuse and challenge prior findings without treating generated text as ground truth.
 
-> **Status:** Early development. The backend provides persistent workspaces and UTF-8 text source uploads, listing, and retrieval. The research features below describe the intended architecture and roadmap.
+> **Status:** Early development. The backend supports persistent workspaces, text sources, passages, keyword search, and citation-linked answers. The research features below describe the intended architecture and roadmap.
 
 ## Local Development
 
@@ -101,6 +101,23 @@ Queries use PostgreSQL English full-text search: words are case-insensitive and 
 `q` is required, limited to 500 characters, and must contain non-whitespace text without NUL characters. `limit` is 1–50 (default 10). Invalid parameters return 422, unknown workspaces return 404, and searches without matches return an empty array (including stop-word-only and punctuation-only queries). Relevance scores are relative ranking values, not confidence or factuality scores.
 
 A stored generated search vector and GIN index cover existing passages during migration and update automatically for new passage text. No external search service or API key is needed.
+
+### Answers from Saved Evidence
+
+Set `OPENAI_API_KEY` and `OPENAI_MODEL` in your environment (or `.env`, then load it as above). Choose a model that supports the Responses API with Structured Outputs. Restart the API after configuring it. Upload sources and generate passages before asking a question:
+
+```sh
+curl --fail 'http://127.0.0.1:8000/workspaces/<workspace-id>/answers' \
+  -H 'Content-Type: application/json' -d '{"question":"How do transactions work?"}'
+```
+
+`POST /workspaces/{id}/answers` accepts a nonblank `question` of at most 500 characters without NUL characters. It retrieves up to five passages using any matching question term, with English stemming; `/search` retains its existing query semantics. The model receives only this bounded evidence and the question, as JSON with a limit of 12,000 characters. Whole passages are omitted if needed to fit that limit; original citation offsets remain intact.
+
+HTTP 200 responses contain `status`, `answer`, `claims` (each with `text` and `passage_ids`), and `citations` with the original passage text and source metadata. Every returned claim must cite a supplied passage ID. Unknown, missing, or foreign citation IDs and malformed model responses produce 502. Citation validation checks evidence membership, not whether the passage supports the claim; semantic verification remains future work.
+
+If no passages match, the endpoint returns `status: "insufficient_evidence"` without calling the model. The model can also abstain with that status. Unknown workspaces return 404, invalid questions return 422, missing provider configuration returns 503, and provider timeouts return 504. Other provider failures return a generic 502 without exposing provider details.
+
+The OpenAI adapter uses the [Responses API with Structured Outputs](https://developers.openai.com/api/docs/guides/structured-outputs), a 30-second request timeout, no automatic retries, and a 1,600-token output cap. It sends `store=false`; answers are not persisted in Atlas yet. Tests use a fake provider and mocked SDK HTTP responses, so they need no API key and make no paid model calls. Live model quality and access are not covered by those tests.
 
 ### Tests
 
