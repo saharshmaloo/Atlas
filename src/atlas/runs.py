@@ -4,7 +4,7 @@ from uuid import UUID, uuid4
 
 from fastapi import APIRouter, HTTPException, Query
 from pydantic import BaseModel, ConfigDict, Field, field_validator
-from sqlalchemy import DateTime, ForeignKey, String, func, select
+from sqlalchemy import Boolean, DateTime, ForeignKey, String, func, select
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 from atlas.database import Base
@@ -27,6 +27,7 @@ class ResearchRun(Base):
     __tablename__ = 'research_runs'
     id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid4)
     workspace_id: Mapped[UUID] = mapped_column(ForeignKey('workspaces.id'), index=True)
+    use_memory: Mapped[bool] = mapped_column(Boolean, server_default='false')
     event_seq: Mapped[int] = mapped_column(server_default='0')
     plan_version: Mapped[str | None] = mapped_column(String(100))
     budgets: Mapped[dict] = mapped_column(JSONB)
@@ -57,6 +58,7 @@ class ResearchTask(Base):
 
 
 class RunRequest(BaseModel):
+    use_memory: bool = False
     budgets: RunBudgets = Field(default_factory=RunBudgets)
     objective: str = Field(min_length=1, max_length=500)
 
@@ -86,6 +88,7 @@ class RunSummary(BaseModel):
     id: UUID
     workspace_id: UUID
     objective: str
+    use_memory: bool
     event_seq: int
     plan_version: str | None
     budgets: RunBudgets
@@ -121,7 +124,7 @@ router = APIRouter(prefix='/workspaces/{workspace_id}/runs', tags=['research run
 @router.post('', response_model=RunDetail, status_code=201)
 def create_run(workspace_id: UUID, body: RunRequest, session: DatabaseSession):
     require_workspace(workspace_id, session)
-    run = ResearchRun(workspace_id=workspace_id, objective=body.objective, budgets=body.budgets.model_dump())
+    run = ResearchRun(workspace_id=workspace_id, objective=body.objective, use_memory=body.use_memory, budgets=body.budgets.model_dump())
     session.add(run); session.flush()
     session.add(ResearchTask(run_id=run.id, position=0, kind='answer', question=body.objective))
     from atlas.events import emit_event

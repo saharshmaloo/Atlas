@@ -3,10 +3,12 @@ async function runLibrary(root, base, signal) {
   const form = node('form');
   const label = node('label', 'Research objective'); label.htmlFor = 'run-objective';
   const input = node('input'); input.id = 'run-objective'; input.required = true; input.maxLength = 500;
+  const memory = node('input'); memory.type = 'checkbox'; memory.id = 'run-use-memory';
+  const memoryLabel = node('label', 'Use supported research memory'); memoryLabel.htmlFor = memory.id;
   const button = node('button', 'Create research run', 'primary');
   const status = node('p'); status.setAttribute('role', 'status');
   const list = node('div'); list.id = 'run-list';
-  form.append(label, input, button, status);
+  form.append(label, input, memoryLabel, memory, button, status);
   section.append(node('h3', 'Research runs'), node('p', 'Run saved-evidence steps with durable progress and execution budgets. Creation queues work; execute it here or with the worker.'), form, list);
   root.append(section);
   form.onsubmit = async event => {
@@ -14,7 +16,7 @@ async function runLibrary(root, base, signal) {
     if (!input.value.trim()) { input.setCustomValidity('Enter an objective.'); input.reportValidity(); return; }
     button.disabled = true;
     try {
-      const run = await api(`${base}/runs`, {method: 'POST', signal, headers: {'Content-Type': 'application/json'}, body: JSON.stringify({objective: input.value.trim()})});
+      const run = await api(`${base}/runs`, {method: 'POST', signal, headers: {'Content-Type': 'application/json'}, body: JSON.stringify({objective: input.value.trim(), use_memory: memory.checked})});
       if (!signal.aborted) location.hash = `${base}/runs/${run.id}`;
     } catch (error) { if (!signal.aborted) status.textContent = failure(error); }
     finally { button.disabled = false; }
@@ -40,7 +42,7 @@ async function runView(root, base, id, signal) {
   root.append(back, content, status, node('h3', 'Progress events'), events);
   let pending = false, stream, serial = 0, lastEvent = 0;
   function render(run) {
-    content.replaceChildren(node('h3', run.objective), node('p', `Run status: ${run.status}`),
+    content.replaceChildren(node('h3', run.objective), node('p', `Run status: ${run.status} · Research memory: ${run.use_memory ? 'enabled' : 'disabled'}`),
       node('p', `Tools: ${run.tool_calls}/${run.budgets.max_tool_calls} · Model calls reserved: ${run.model_calls_reserved}/${run.budgets.max_model_calls} · Tokens reserved: ${run.tokens_reserved}/${run.budgets.max_model_tokens}`),
       node('p', `Attempts per task: ${run.budgets.max_attempts} · Concurrency: ${run.budgets.max_concurrency} · Time limit: ${run.budgets.max_seconds}s${run.deadline_at ? ' · Deadline: ' + new Date(run.deadline_at).toLocaleString() : ''}`));
     for (const task of run.tasks) {

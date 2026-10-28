@@ -53,3 +53,18 @@ def test_newer_verification_invalidates_older_supported_memory_even_if_remembere
     # Explicitly re-saving an older assessment must not reinstate it for retrieval.
     client.post(f"{url}/remember?verification_id={supported['id']}")
     assert client.post(f'{base}/answers', json={'question': 'durability', 'use_memory': True}).json()['status'] == 'insufficient_evidence'
+
+
+def test_durable_runs_persist_opt_in_memory_expansion(client):
+    base, _, seed = setup_memory(client)
+    client.app.dependency_overrides[get_claim_verifier] = SupportedVerifier
+    client.post(f"{base}/answers/{seed['id']}/verifications")
+    client.post(f"{base}/answers/{seed['id']}/remember")
+    for enabled in [False, True]:
+        run = client.post(f'{base}/runs', json={'objective': 'durability', 'use_memory': enabled}).json()
+        assert run['use_memory'] is enabled
+        done = client.post(f"{base}/runs/{run['id']}/step").json()['run']
+        assert done['status'] == 'completed'
+        answer = client.get(f"{base}/answers/{done['tasks'][0]['output']['answer_id']}").json()
+        assert answer['status'] == ('answered' if enabled else 'insufficient_evidence')
+        assert answer['provenance']['memory_passage_count'] == int(enabled)

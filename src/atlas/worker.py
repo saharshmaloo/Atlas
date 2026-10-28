@@ -25,6 +25,7 @@ class TaskClaim:
     token: UUID
     kind: str
     question: str
+    use_memory: bool = False
 
 
 def claim_task(session, workspace_id, run_id):
@@ -67,7 +68,7 @@ def claim_task(session, workspace_id, run_id):
     transition_task(task, 'running')
     task.attempt += 1; task.lease_token = uuid4(); task.lease_until = now + timedelta(seconds=120)
     run.status = 'running'
-    claim = TaskClaim(task.id, run.id, workspace_id, task.lease_token, task.kind, task.question)
+    claim = TaskClaim(task.id, run.id, workspace_id, task.lease_token, task.kind, task.question, run.use_memory)
     emit_event(session, run, 'task_started', task.id, kind=task.kind, attempt=task.attempt,
                tool_calls=run.tool_calls, model_calls_reserved=run.model_calls_reserved, tokens_reserved=run.tokens_reserved)
     session.commit()
@@ -102,7 +103,7 @@ def execute_claim(session, claim, provider, embedding_factory=get_embedding_prov
     started = time.monotonic()
     try:
         if claim.kind == 'answer':
-            result = answer_question(claim.workspace_id, AnswerRequest(question=claim.question), session,
+            result = answer_question(claim.workspace_id, AnswerRequest(question=claim.question, use_memory=claim.use_memory), session,
                 provider, embedding_factory, reranker, idempotency_key=f'research-task:{claim.task_id}')
             output = {'answer_id': str(result.id), 'status': result.status}
         elif claim.kind == 'verify':

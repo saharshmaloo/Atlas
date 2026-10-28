@@ -29,10 +29,12 @@ def test_resumed_run_reconnects_progress_stream(browser_page):
     from playwright.sync_api import expect
     page, _ = browser_page
     create_workspace(page)
+    page.locator('#run-use-memory').check()
     page.locator('#run-objective').fill('unmatched')
     page.locator('#run-objective').press('Enter')
     page.get_by_role('button', name='Cancel run', exact=True).click()
     expect(page.locator('#run-detail')).to_contain_text('Run status: cancelled')
+    expect(page.locator('#run-detail')).to_contain_text('Research memory: enabled')
     page.get_by_role('button', name='Resume run', exact=True).click()
     expect(page.locator('#run-detail')).to_contain_text('Run status: queued')
     page.get_by_role('button', name='Run next task', exact=True).click()
