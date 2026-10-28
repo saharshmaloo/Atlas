@@ -27,6 +27,7 @@ class ResearchRun(Base):
     __tablename__ = 'research_runs'
     id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid4)
     workspace_id: Mapped[UUID] = mapped_column(ForeignKey('workspaces.id'), index=True)
+    event_seq: Mapped[int] = mapped_column(server_default='0')
     plan_version: Mapped[str | None] = mapped_column(String(100))
     budgets: Mapped[dict] = mapped_column(JSONB)
     model_calls_reserved: Mapped[int] = mapped_column(server_default='0')
@@ -122,6 +123,8 @@ def create_run(workspace_id: UUID, body: RunRequest, session: DatabaseSession):
     run = ResearchRun(workspace_id=workspace_id, objective=body.objective, budgets=body.budgets.model_dump())
     session.add(run); session.flush()
     session.add(ResearchTask(run_id=run.id, position=0, kind='answer', question=body.objective))
+    from atlas.events import emit_event
+    emit_event(session, run, 'created', status='queued')
     session.commit()
     return get_run(workspace_id, run.id, session)
 

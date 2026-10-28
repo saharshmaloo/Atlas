@@ -10,6 +10,7 @@ from sqlalchemy import and_, create_engine, func, or_, select
 from sqlalchemy.orm import Session
 from atlas.answers import AnswerRequest, answer_question, get_answer_provider
 from atlas.database import database_url
+from atlas.events import emit_event
 from atlas.embeddings import get_embedding_provider
 from atlas.reranking import get_reranker
 from atlas.runs import ResearchRun, ResearchTask, RunBudgets, transition_task
@@ -36,7 +37,7 @@ def claim_task(session, workspace_id, run_id):
     if run.started_at is None:
         run.started_at, run.deadline_at = now, now + timedelta(seconds=budgets.max_seconds)
     if now >= run.deadline_at:
-        run.status = 'budget_exhausted'; session.commit(); return None
+        run.status = 'budget_exhausted'; emit_event(session, run, 'budget_exhausted', status=run.status); session.commit(); return None
     active = session.scalar(select(func.count()).select_from(ResearchTask).where(
         ResearchTask.run_id == run.id, ResearchTask.status == 'running', ResearchTask.lease_until > now))
     if active >= budgets.max_concurrency:
@@ -51,24 +52,29 @@ def claim_task(session, workspace_id, run_id):
     if task.attempt >= budgets.max_attempts:
         task.status, task.error, run.status = 'failed', 'Attempt budget exhausted', 'failed'
         task.lease_token = task.lease_until = None
+        emit_event(session, run, 'task_failed', task.id, status='failed', code='attempt_budget')
         session.commit(); return None
     calls = int(task.kind in ('answer', 'verify'))
     tokens = 52000 if task.kind == 'answer' else 196000 if task.kind == 'verify' else 0
     if (run.tool_calls + 1 > budgets.max_tool_calls or run.model_calls_reserved + calls > budgets.max_model_calls
         or run.tokens_reserved + tokens > budgets.max_model_tokens
         or (calls and (run.deadline_at - now).total_seconds() < 31)):
-        run.status = 'budget_exhausted'; session.commit(); return None
+        run.status = 'budget_exhausted'; emit_event(session, run, 'budget_exhausted', status=run.status); session.commit(); return None
     run.tool_calls += 1; run.model_calls_reserved += calls; run.tokens_reserved += tokens
-    if task.status == 'running': transition_task(task, 'queued')
+    if task.status == 'running':
+        emit_event(session, run, 'lease_recovered', task.id, attempt=task.attempt)
+        transition_task(task, 'queued')
     transition_task(task, 'running')
     task.attempt += 1; task.lease_token = uuid4(); task.lease_until = now + timedelta(seconds=120)
     run.status = 'running'
     claim = TaskClaim(task.id, run.id, workspace_id, task.lease_token, task.kind, task.question)
+    emit_event(session, run, 'task_started', task.id, kind=task.kind, attempt=task.attempt,
+               tool_calls=run.tool_calls, model_calls_reserved=run.model_calls_reserved, tokens_reserved=run.tokens_reserved)
     session.commit()
     return claim
 
 
-def finish_task(session, claim, output=None, error=None):
+def finish_task(session, claim, output=None, error=None, duration_ms=0):
     run = session.scalar(select(ResearchRun).where(ResearchRun.id == claim.run_id).with_for_update())
     task = session.scalar(select(ResearchTask).where(ResearchTask.id == claim.task_id).with_for_update())
     if task is None or task.lease_token != claim.token or task.status != 'running':
@@ -82,6 +88,8 @@ def finish_task(session, claim, output=None, error=None):
     run.status = 'failed' if 'failed' in states else 'completed' if all(s == 'completed' for s in states) else 'running'
     if run.deadline_at and session.scalar(select(func.now())) >= run.deadline_at:
         run.status = 'budget_exhausted'
+    emit_event(session, run, 'task_retried' if retry else 'task_failed' if error else 'task_completed',
+        task.id, status=run.status, duration_ms=duration_ms, code='execution_failed' if error else 'ok')
     session.commit()
     return True
 
@@ -90,6 +98,7 @@ def execute_claim(session, claim, provider, embedding_factory=get_embedding_prov
     current = session.get(ResearchTask, claim.task_id)
     if current is None or current.lease_token != claim.token or current.status != 'running': return False
     session.rollback()
+    started = time.monotonic()
     try:
         if claim.kind == 'answer':
             result = answer_question(claim.workspace_id, AnswerRequest(question=claim.question), session,
@@ -109,11 +118,11 @@ def execute_claim(session, claim, provider, embedding_factory=get_embedding_prov
             session.rollback()
         else:
             raise ValueError('Unknown task tool')
-        return finish_task(session, claim, output=output)
+        return finish_task(session, claim, output=output, duration_ms=int((time.monotonic() - started) * 1000))
     except Exception as error:
         session.rollback()
         category = f'HTTP {error.status_code}' if isinstance(error, HTTPException) else 'execution error'
-        return finish_task(session, claim, error=f'Task failed ({category})')
+        return finish_task(session, claim, error=f'Task failed ({category})', duration_ms=int((time.monotonic() - started) * 1000))
 
 
 def run_once(engine, provider=None):

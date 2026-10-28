@@ -3,6 +3,7 @@ from uuid import UUID, uuid4
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 from sqlalchemy import delete
+from atlas.events import emit_event
 from atlas.run_control import locked_run
 from atlas.runs import ResearchTask, RunBudgets, get_run
 from atlas.workspaces import DatabaseSession
@@ -72,5 +73,6 @@ def plan_run(workspace_id: UUID, run_id: UUID, session: DatabaseSession,
         session.add(ResearchTask(id=ids[step.key], run_id=run.id, position=position, kind=step.kind,
             question=step.question.strip(), depends_on=[str(ids[key]) for key in step.after]))
     run.plan_version = planner.identity
+    emit_event(session, run, 'planned', count=len(plan.steps))
     session.commit()
     return get_run(workspace_id, run_id, session)

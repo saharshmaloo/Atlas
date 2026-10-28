@@ -1,6 +1,7 @@
 from uuid import UUID
 from fastapi import APIRouter, HTTPException
 from sqlalchemy import func, select
+from atlas.events import emit_event
 from atlas.runs import ResearchRun, ResearchTask, RunBudgets, get_run
 from atlas.workspaces import DatabaseSession
 
@@ -19,6 +20,7 @@ def locked_run(workspace_id, run_id, session):
 def cancel_run(workspace_id: UUID, run_id: UUID, session: DatabaseSession):
     run, tasks = locked_run(workspace_id, run_id, session)
     if run.status == 'completed': raise HTTPException(409, 'Completed runs cannot be cancelled')
+    if run.status != 'cancelled': emit_event(session, run, 'cancelled', status='cancelled')
     run.status = 'cancelled'
     for task in tasks:
         if task.status != 'completed':
@@ -40,5 +42,6 @@ def resume_run(workspace_id: UUID, run_id: UUID, session: DatabaseSession):
         if task.status != 'completed':
             task.status = 'queued'; task.lease_token = task.lease_until = None
     run.status = 'queued'
+    emit_event(session, run, 'resumed', status='queued')
     session.commit()
     return get_run(workspace_id, run_id, session)
