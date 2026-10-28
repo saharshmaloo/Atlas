@@ -8,8 +8,22 @@ import pytest
 import uvicorn
 
 from atlas.main import create_app
+from atlas.answers import Claim, DraftAnswer, get_answer_provider
 
 pytestmark = pytest.mark.database
+
+
+class FakeProvider:
+    calls = 0
+    error = None
+
+    def generate(self, question, evidence):
+        self.calls += 1
+        if self.error:
+            raise self.error
+        return DraftAnswer(status='answered', claims=[
+            Claim(text='<b>Transactions preserve evidence.</b>', passage_ids=[evidence[0].id]),
+        ])
 
 
 @pytest.fixture
@@ -19,6 +33,8 @@ def browser_page(database):
     from playwright.sync_api import sync_playwright
 
     app = create_app(database[0])
+    app.state.test_provider = FakeProvider()
+    app.dependency_overrides[get_answer_provider] = lambda: app.state.test_provider
     with socket.socket() as listener:
         listener.bind(('127.0.0.1', 0))
         listener.listen(128)
@@ -192,3 +208,64 @@ def test_search_failure_recovery(browser_page):
     page.unroute('**/search?*')
     page.locator('#search-query').press('Enter')
     expect(page.locator('#search-results')).to_contain_text('No matching passages')
+
+
+def prepare_evidence(page):
+    create_workspace(page)
+    open_source(page)
+    page.get_by_role('button', name='Generate passages', exact=True).click()
+    from playwright.sync_api import expect
+    expect(page.locator('#passages article')).to_have_count(1)
+    page.get_by_role('link', name='Workspace sources').click()
+
+
+def ask(page, question='How do transactions preserve evidence?'):
+    page.locator('#question').fill(question)
+    page.locator('#question').press('Enter')
+
+
+def test_question_answer_and_insufficient_evidence(browser_page):
+    from playwright.sync_api import expect
+    page, app = browser_page
+    prepare_evidence(page)
+    ask(page)
+    expect(page.locator('#answer .claim')).to_have_text('<b>Transactions preserve evidence.</b>Evidence: notes.txt · passage 1')
+    assert page.locator('#answer b').count() == 0
+    assert page.locator('#answer').get_attribute('data-answer-id')
+    assert app.state.test_provider.calls == 1
+    ask(page, 'unfindable')
+    expect(page.locator('#answer')).to_contain_text('Insufficient evidence')
+    assert app.state.test_provider.calls == 1
+
+
+@pytest.mark.parametrize('error,message', [('ProviderUnavailable', 'not configured'),
+                                         ('ProviderTimeout', 'timed out'), ('ProviderFailure', 'invalid response')])
+def test_question_provider_errors(browser_page, error, message):
+    from atlas import answers
+    from playwright.sync_api import expect
+    page, app = browser_page
+    prepare_evidence(page)
+    app.state.test_provider.error = getattr(answers, error)()
+    ask(page)
+    expect(page.locator('#questions [role=status]')).to_contain_text(message)
+    expect(page.locator('#question')).to_have_value('How do transactions preserve evidence?')
+    app.state.test_provider.error = None
+    page.get_by_role('button', name='Ask question', exact=True).click()
+    expect(page.locator('#answer .claim')).to_have_count(1)
+
+
+def test_question_duplicate_and_navigation(browser_page):
+    from playwright.sync_api import expect
+    page, app = browser_page
+    prepare_evidence(page)
+    requests = []
+    def hold(route):
+        requests.append(route.request)
+    page.route('**/answers', hold)
+    ask(page)
+    expect(page.get_by_role('button', name='Ask question', exact=True)).to_be_disabled()
+    page.locator('#question').press('Enter')
+    assert len(requests) == 1
+    page.get_by_role('link', name='All workspaces').click()
+    expect(page.locator('#library')).to_be_visible()
+    assert app.state.test_provider.calls == 0

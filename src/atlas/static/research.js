@@ -7,6 +7,52 @@ const node = (tag, text, className) => {
 };
 const failure = (error) => error instanceof TypeError ? 'Could not reach Atlas. Please try again.' : error.message;
 const research = {
+  answer(root, base, answer) {
+    root.replaceChildren(); root.dataset.answerId = answer.id;
+    root.append(node('h3', answer.question), node('p', `${answer.status === 'answered' ? 'Answered' : 'Insufficient evidence'} · ${new Date(answer.created_at).toLocaleString()}`));
+    if (answer.status === 'insufficient_evidence') root.append(node('p', 'Insufficient evidence in the saved passages. Add sources or try another question.'));
+    answer.claims.forEach(claim => {
+      const row = node('article', undefined, 'claim'); row.append(node('p', claim.text));
+      claim.passage_ids.forEach(id => {
+        const citation = answer.citations.find(item => item.id === id);
+        const link = node('a', `Evidence: ${citation.source_title} · passage ${citation.position + 1}`, 'text-link');
+        link.href = `#${base}/sources/${citation.source_id}?${new URLSearchParams({passage: id, position: citation.position})}`;
+        row.append(link);
+      });
+      root.append(row);
+    });
+    root.append(node('p', 'Citation IDs are validated against retrieved evidence. They do not establish that the evidence semantically supports a claim.'));
+  },
+  question(root, base, signal) {
+    const section = node('section'); section.id = 'questions';
+    const form = node('form');
+    const label = node('label', 'Question about saved evidence'); label.htmlFor = 'question';
+    const input = node('input'); input.id = 'question'; input.required = true; input.maxLength = 500;
+    const submit = node('button', 'Ask question', 'primary');
+    const message = node('p'); message.setAttribute('role', 'status');
+    const answer = node('div'); answer.id = 'answer';
+    form.append(label, input, submit, message);
+    section.append(node('h3', 'Ask your sources'), form, answer); root.append(section);
+    let pending = false;
+    input.oninput = () => input.setCustomValidity('');
+    form.onsubmit = async event => {
+      event.preventDefault();
+      if (pending) return;
+      const question = input.value.trim();
+      if (!question || question.includes('\0')) { input.setCustomValidity('Enter a question without NUL characters.'); input.reportValidity(); return; }
+      pending = true; submit.disabled = true; answer.replaceChildren(); message.textContent = 'Finding evidence and preparing an answer…';
+      try {
+        const result = await api(`${base}/answers`, {method: 'POST', signal,
+          headers: {'Content-Type': 'application/json'}, body: JSON.stringify({question})});
+        if (signal.aborted) return;
+        message.textContent = 'Answer saved.';
+        this.answer(answer, base, result);
+      } catch (error) {
+        if (!signal.aborted) message.textContent = failure(error);
+      } finally { pending = false; submit.disabled = false; }
+    };
+  },
+
   async search(root, base, params, signal) {
     const section = node('section'); section.id = 'search';
     const form = node('form');
@@ -179,6 +225,7 @@ const research = {
       }
     };
     await load();
+    if (!signal.aborted) this.question(root, base, signal);
     if (!signal.aborted) await this.search(root, base, params, signal);
   },
 };
