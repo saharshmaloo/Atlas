@@ -96,9 +96,11 @@ const research = {
     const answer = node('div'); answer.id = 'answer';
     form.append(label, input);
     const retrieval = retrievalSelect(form, 'question-retrieval', saved?.provenance?.retrieval.startsWith('hybrid') ? 'hybrid' : 'keyword');
-    form.append(submit, message);
+    const memoryLabel = node('label', 'Expand evidence using supported research memory');
+    const memory = node('input'); memory.type = 'checkbox'; memory.id = 'use-memory'; memoryLabel.htmlFor = memory.id;
+    form.append(memoryLabel, memory, submit, message);
     section.append(node('h3', 'Ask your sources'), form, answer); root.append(section);
-    if (saved) { input.value = saved.question; this.answer(answer, base, saved); supportView(answer, base, saved, signal); }
+    if (saved) { input.value = saved.question; this.answer(answer, base, saved); supportView(answer, base, saved, signal); rememberControls(answer, base, saved, signal); }
     let pending = false, requestKey, keyQuestion;
     input.oninput = () => input.setCustomValidity('');
     form.onsubmit = async event => {
@@ -106,12 +108,12 @@ const research = {
       if (pending) return;
       const question = input.value.trim();
       if (!question || question.includes('\0')) { input.setCustomValidity('Enter a question without NUL characters.'); input.reportValidity(); return; }
-      const signature = JSON.stringify([question, retrieval.value]);
+      const signature = JSON.stringify([question, retrieval.value, memory.checked]);
       if (keyQuestion !== signature) { keyQuestion = signature; requestKey = crypto.randomUUID(); }
       pending = true; submit.disabled = true; answer.replaceChildren(); message.textContent = 'Finding evidence and preparing an answer…';
       try {
         const result = await api(`${base}/answers`, {method: 'POST', signal,
-          headers: {'Content-Type': 'application/json', 'Idempotency-Key': requestKey}, body: JSON.stringify({question, retrieval: retrieval.value})});
+          headers: {'Content-Type': 'application/json', 'Idempotency-Key': requestKey}, body: JSON.stringify({question, retrieval: retrieval.value, use_memory: memory.checked})});
         if (signal.aborted) return;
         location.hash = `${base}/answers/${result.id}`;
       } catch (error) {
@@ -303,5 +305,7 @@ const research = {
     if (!signal.aborted) await this.search(root, base, params, signal);
     if (!signal.aborted) await this.history(root, base, signal);
     if (!signal.aborted) await runLibrary(root, base, signal);
+    if (!signal.aborted) await memoryLibrary(root, base, signal);
+    if (!signal.aborted) await openQuestions(root, base, signal);
   },
 };
