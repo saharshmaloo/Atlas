@@ -27,6 +27,7 @@ class ResearchRun(Base):
     __tablename__ = 'research_runs'
     id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid4)
     workspace_id: Mapped[UUID] = mapped_column(ForeignKey('workspaces.id'), index=True)
+    plan_version: Mapped[str | None] = mapped_column(String(100))
     budgets: Mapped[dict] = mapped_column(JSONB)
     model_calls_reserved: Mapped[int] = mapped_column(server_default='0')
     tool_calls: Mapped[int] = mapped_column(server_default='0')
@@ -46,6 +47,7 @@ class ResearchTask(Base):
     kind: Mapped[str] = mapped_column(String(16))
     question: Mapped[str] = mapped_column(String(500))
     status: Mapped[str] = mapped_column(String(16), server_default='queued')
+    depends_on: Mapped[list] = mapped_column(JSONB, server_default='[]')
     attempt: Mapped[int] = mapped_column(server_default='0')
     lease_token: Mapped[UUID | None]
     lease_until: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
@@ -71,6 +73,7 @@ class TaskResponse(BaseModel):
     kind: str
     question: str
     status: State
+    depends_on: list[UUID]
     attempt: int
     lease_until: datetime | None
     output: dict | None
@@ -82,6 +85,7 @@ class RunSummary(BaseModel):
     id: UUID
     workspace_id: UUID
     objective: str
+    plan_version: str | None
     budgets: RunBudgets
     model_calls_reserved: int
     tool_calls: int

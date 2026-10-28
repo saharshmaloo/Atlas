@@ -41,9 +41,11 @@ def claim_task(session, workspace_id, run_id):
         ResearchTask.run_id == run.id, ResearchTask.status == 'running', ResearchTask.lease_until > now))
     if active >= budgets.max_concurrency:
         session.rollback(); return None
-    task = session.scalar(select(ResearchTask).where(ResearchTask.run_id == run.id,
+    candidates = list(session.scalars(select(ResearchTask).where(ResearchTask.run_id == run.id,
         or_(ResearchTask.status == 'queued', and_(ResearchTask.status == 'running', ResearchTask.lease_until <= now)))
-        .order_by(ResearchTask.position, ResearchTask.id).with_for_update(skip_locked=True).limit(1))
+        .order_by(ResearchTask.position, ResearchTask.id).with_for_update(skip_locked=True).limit(8)))
+    states = dict(session.execute(select(ResearchTask.id, ResearchTask.status).where(ResearchTask.run_id == run.id)).all())
+    task = next((item for item in candidates if all(states.get(UUID(dep)) == 'completed' for dep in item.depends_on)), None)
     if task is None:
         session.rollback(); return None
     if task.attempt >= budgets.max_attempts:
@@ -84,7 +86,7 @@ def finish_task(session, claim, output=None, error=None):
     return True
 
 
-def execute_claim(session, claim, provider, embedding_factory=get_embedding_provider, reranker=None):
+def execute_claim(session, claim, provider, embedding_factory=get_embedding_provider, reranker=None, verifier=None):
     current = session.get(ResearchTask, claim.task_id)
     if current is None or current.lease_token != claim.token or current.status != 'running': return False
     session.rollback()
@@ -93,6 +95,15 @@ def execute_claim(session, claim, provider, embedding_factory=get_embedding_prov
             result = answer_question(claim.workspace_id, AnswerRequest(question=claim.question), session,
                 provider, embedding_factory, reranker, idempotency_key=f'research-task:{claim.task_id}')
             output = {'answer_id': str(result.id), 'status': result.status}
+        elif claim.kind == 'verify':
+            from atlas.verification import get_claim_verifier
+            from atlas.verification_api import check_support
+            dependencies = list(session.scalars(select(ResearchTask).where(ResearchTask.run_id == claim.run_id,
+                ResearchTask.id.in_([UUID(dep) for dep in current.depends_on]))))
+            answer_id = next(UUID(item.output['answer_id']) for item in dependencies if item.output and 'answer_id' in item.output)
+            result = check_support(claim.workspace_id, answer_id, session, verifier or get_claim_verifier(),
+                                   idempotency_key=f'research-task:{claim.task_id}')
+            output = {'verification_id': str(result.id), 'answer_id': str(answer_id)}
         elif claim.kind == 'search':
             output = {'passage_ids': [str(item.id) for item in retrieve_passages(claim.workspace_id, session, claim.question, 5)]}
             session.rollback()

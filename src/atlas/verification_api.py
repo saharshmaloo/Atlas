@@ -1,10 +1,11 @@
+from hashlib import sha256
 from datetime import datetime
 from typing import Annotated
 from uuid import UUID, uuid4
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, Header, HTTPException
 from pydantic import BaseModel, ConfigDict
-from sqlalchemy import DateTime, ForeignKey, String, func, select
+from sqlalchemy import DateTime, ForeignKey, String, func, select, text
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -20,6 +21,7 @@ class VerificationRecord(Base):
     answer_id: Mapped[UUID] = mapped_column(ForeignKey('answers.id'), index=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     verifier: Mapped[str] = mapped_column(String(200))
+    request_key: Mapped[str | None] = mapped_column(String(64), unique=True)
     judgments: Mapped[list] = mapped_column(JSONB)
 
 
@@ -37,9 +39,16 @@ router = APIRouter(prefix='/workspaces/{workspace_id}/answers/{answer_id}/verifi
 
 @router.post('', response_model=VerificationResponse, status_code=201)
 def check_support(workspace_id: UUID, answer_id: UUID, session: DatabaseSession,
-                  verifier: Annotated[ClaimVerifier, Depends(get_claim_verifier)]):
+                  verifier: Annotated[ClaimVerifier, Depends(get_claim_verifier)],
+                  idempotency_key: Annotated[str | None, Header(min_length=1, max_length=128)] = None):
     answer = get_answer(workspace_id, answer_id, session)
-    session.rollback()
+    key = sha256(f'{workspace_id}:{answer_id}:{idempotency_key}'.encode()).hexdigest() if idempotency_key else None
+    if key:
+        session.execute(text('SELECT pg_advisory_xact_lock(hashtextextended(:key, 0))'), {'key': key})
+        prior = session.scalar(select(VerificationRecord).where(VerificationRecord.request_key == key))
+        if prior: return prior
+    else:
+        session.rollback()
     try:
         judgments = verify_claims(verifier, answer.question, answer.claims, answer.citations)
     except (ValueError, TimeoutError):
@@ -47,7 +56,7 @@ def check_support(workspace_id: UUID, answer_id: UUID, session: DatabaseSession,
     identity = verifier.identity
     if not identity or len(identity) > 200 or '\0' in identity:
         raise HTTPException(502, 'Invalid verifier identity')
-    record = VerificationRecord(answer_id=answer_id, verifier=identity,
+    record = VerificationRecord(answer_id=answer_id, verifier=identity, request_key=key,
                                 judgments=[item.model_dump(mode='json') for item in judgments])
     session.add(record); session.commit(); session.refresh(record)
     return record
