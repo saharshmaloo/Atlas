@@ -12,7 +12,7 @@ async function api(path, options = {}) {
       504: 'The answer provider timed out. Please try again.',
       502: 'The answer provider returned an invalid response. Please try again.'};
     const body = await response.json().catch(() => ({}));
-    throw new Error(response.status === 422 && typeof body.detail === 'string' ? body.detail :
+    throw new Error([422, 503].includes(response.status) && typeof body.detail === 'string' ? body.detail :
       messages[response.status] || 'Atlas couldn’t complete that request. Please try again.');
   }
   return options.text ? response.text() : response.json();

@@ -94,7 +94,9 @@ const research = {
     const submit = node('button', 'Ask question', 'primary');
     const message = node('p'); message.setAttribute('role', 'status');
     const answer = node('div'); answer.id = 'answer';
-    form.append(label, input, submit, message);
+    form.append(label, input);
+    const retrieval = retrievalSelect(form, 'question-retrieval', saved?.provenance?.retrieval.startsWith('hybrid') ? 'hybrid' : 'keyword');
+    form.append(submit, message);
     section.append(node('h3', 'Ask your sources'), form, answer); root.append(section);
     if (saved) { input.value = saved.question; this.answer(answer, base, saved); supportView(answer, base, saved, signal); }
     let pending = false, requestKey, keyQuestion;
@@ -104,11 +106,12 @@ const research = {
       if (pending) return;
       const question = input.value.trim();
       if (!question || question.includes('\0')) { input.setCustomValidity('Enter a question without NUL characters.'); input.reportValidity(); return; }
-      if (keyQuestion !== question) { keyQuestion = question; requestKey = crypto.randomUUID(); }
+      const signature = JSON.stringify([question, retrieval.value]);
+      if (keyQuestion !== signature) { keyQuestion = signature; requestKey = crypto.randomUUID(); }
       pending = true; submit.disabled = true; answer.replaceChildren(); message.textContent = 'Finding evidence and preparing an answer…';
       try {
         const result = await api(`${base}/answers`, {method: 'POST', signal,
-          headers: {'Content-Type': 'application/json', 'Idempotency-Key': requestKey}, body: JSON.stringify({question})});
+          headers: {'Content-Type': 'application/json', 'Idempotency-Key': requestKey}, body: JSON.stringify({question, retrieval: retrieval.value})});
         if (signal.aborted) return;
         location.hash = `${base}/answers/${result.id}`;
       } catch (error) {
@@ -125,26 +128,29 @@ const research = {
     input.value = params.get('q') || '';
     const submit = node('button', 'Search', 'primary');
     const results = node('div'); results.id = 'search-results'; results.setAttribute('role', 'status');
-    form.append(label, input, submit);
+    form.append(label, input);
+    const retrieval = retrievalSelect(form, 'search-retrieval', params.get('mode') || 'keyword');
+    form.append(submit);
     section.append(node('h3', 'Find evidence'), node('p', 'Keyword search covers generated passages. Ranking is not a confidence score.'), form, results);
     root.append(section);
     form.onsubmit = event => {
       event.preventDefault();
       const q = input.value.trim();
       if (!q || q.includes('\0')) { input.setCustomValidity('Enter a search query without NUL characters.'); input.reportValidity(); return; }
-      const hash = `#${base}?${new URLSearchParams({q})}`;
+      const hash = `#${base}?${new URLSearchParams({q, mode: retrieval.value})}`;
       if (location.hash === hash) renderRoute(); else location.hash = hash;
     };
     input.oninput = () => input.setCustomValidity('');
     if (!input.value) return;
     submit.disabled = true; results.textContent = 'Searching…';
     try {
-      const items = await api(`${base}/search?${new URLSearchParams({q: input.value, limit: 50})}`, {signal});
+      const response = await api(`${base}/${retrieval.value === 'hybrid' ? 'hybrid-search' : 'search'}?${new URLSearchParams({q: input.value, limit: 50})}`, {signal});
       if (signal.aborted) return;
+      const items = Array.isArray(response) ? response : response.results;
       results.replaceChildren(...items.map((passage, index) => {
         const row = node('article');
         const link = node('a', `${index + 1}. ${passage.source_title} · Passage ${passage.position + 1}`, 'text-link');
-        link.href = `#${base}/sources/${passage.source_id}?${new URLSearchParams({q: input.value, passage: passage.id, position: passage.position})}`;
+        link.href = `#${base}/sources/${passage.source_id}?${new URLSearchParams({q: input.value, mode: retrieval.value, passage: passage.id, position: passage.position})}`;
         row.append(link, node('p', `Characters ${passage.start_char}–${passage.end_char} · ${passage.id}`, 'mono'), node('pre', passage.text, 'source-text'));
         return row;
       }));
@@ -156,7 +162,7 @@ const research = {
 
   async source(root, base, id, signal, params) {
     const back = node('a', '← Workspace sources', 'back text-link');
-    back.href = `#${base}?${new URLSearchParams(params.has('q') ? {q: params.get('q')} : {})}`;
+    back.href = `#${base}?${new URLSearchParams(params.has('q') ? {q: params.get('q'), mode: params.get('mode') || 'keyword'} : {})}`;
     root.append(back, node('p', 'Loading source…'));
     const [source, content] = await Promise.all([
       api(`${base}/sources/${id}`, {signal}), api(`${base}/sources/${id}/content`, {signal, text: true}),
@@ -240,6 +246,7 @@ const research = {
     pager.append(previous, next);
     root.append(heading, form, list, pager);
     webUpload(root, base, signal);
+    embeddingControls(root, base, signal);
     let offset = 0, pending = false, listing;
     async function load() {
       listing?.abort(); listing = new AbortController();
