@@ -6,7 +6,7 @@ Atlas is an open-source, agentic research workspace that investigates complex qu
 
 Unlike a conventional research chatbot that produces an answer and forgets its supporting work, Atlas is designed to preserve **sources, claims, relationships, and open questions**. Each investigation can reuse and challenge prior findings without treating generated text as ground truth.
 
-> **Status:** Early development. The backend supports persistent workspaces, text sources, passages, keyword search, and citation-linked answers. The research features below describe the intended architecture and roadmap.
+> **Status:** Local prototype; implementation milestones 1–4 are complete. Atlas supports versioned text/PDF/web sources, keyword and optional hybrid retrieval, saved answers and support judgments, durable budgeted research runs, and evidence-backed research memory. See the [operations guide](docs/OPERATIONS.md) for configuration, API usage, worker execution, tests, and limitations.
 
 ## Local Development
 
@@ -121,7 +121,7 @@ curl --fail 'http://127.0.0.1:8000/workspaces/<workspace-id>/answers' \
 
 `POST /workspaces/{id}/answers` accepts a nonblank `question` of at most 500 characters without NUL characters. It retrieves up to five passages using any matching question term, with English stemming; `/search` retains its existing query semantics. The model receives only this bounded evidence and the question, as JSON with a limit of 12,000 characters. Whole passages are omitted if needed to fit that limit; original citation offsets remain intact.
 
-HTTP 200 responses contain `status`, `answer`, `claims` (each with `text` and `passage_ids`), and `citations` with the original passage text and source metadata. Every returned claim must cite a supplied passage ID. Unknown, missing, or foreign citation IDs and malformed model responses produce 502. Citation validation checks evidence membership, not whether the passage supports the claim; semantic verification remains future work.
+HTTP 200 responses contain `status`, `answer`, `claims` (each with `text` and `passage_ids`), and `citations` with the original passage text and source metadata. Every returned claim must cite a supplied passage ID. Unknown, missing, or foreign citation IDs and malformed model responses produce 502. Citation validation checks evidence membership, not whether the passage supports the claim; optional semantic assessments are available separately and remain fallible.
 
 If no passages match, the endpoint returns `status: "insufficient_evidence"` without calling the model. The model can also abstain with that status. Unknown workspaces return 404, invalid questions return 422, missing provider configuration returns 503, and provider timeouts return 504. Other provider failures return a generic 502 without exposing provider details.
 

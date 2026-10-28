@@ -2,11 +2,13 @@
 
 ## Current status
 
-The backend already supports workspaces, UTF-8 text sources, deterministic passages, keyword search, cited answers, and answer history. Model responses have citation-ID validation; semantic claim verification is not implemented.
+Milestones **1–4 are complete** for the local prototype. All slices 01–38 have implementations and tests, with larger API/UI features split into independently reviewable commits below 500 added/deleted lines. The operations guide in `docs/OPERATIONS.md` documents configuration, endpoints, workers, bounds, and future hosting work.
 
-Milestone 1 is complete. The packaged browser UI covers workspace creation, source upload and inspection, passage generation, keyword search, cited answers, saved citation snapshots, and paginated answer history. Source and answer URLs support refresh and browser navigation.
+Milestone 2 includes PostgreSQL/installed-wheel/browser CI, labeled evaluations, generation provenance, concurrent request idempotency, and separate semantic judgments. Milestone 3 adds immutable source versions/duplicate detection, bounded PDF/public-web ingestion, versioned embeddings, exact vector/hybrid retrieval, and optional reranking. Milestone 4 adds durable leased tasks, persistent budgets, cancellation/resume, bounded saved-evidence planning, replayable progress, claims/evidence relationships, memory retrieval, conflicts/supersession, and open questions.
 
-Verification: 115 tests passed against Docker PostgreSQL with warnings treated as errors, including wheel installation outside the checkout and a fake-provider Chromium regression harness. The full research flow passes at 390px and 1280px widths; screenshots at both widths were visually reviewed. Tests cover keyboard operation, untrusted text, validation, pagination, provider failures, stale navigation, immutable snapshots, and provider-free history retrieval. Live model quality, other browser engines, and physical mobile devices remain unverified.
+Full-suite checkpoints passed 136 tests after milestone 2 and 186 after milestone 3. Final milestone 4 verification passed **222 tests with zero skips** using `STRICT_TESTS=1 RUN_BROWSER_TESTS=1` and `-W error`. The local development database is migrated through revision `0019`, and the running app exposes the new routes. Hosted CI is configured; it has not been run on GitHub for these local commits. Tests use Docker PostgreSQL, Chromium at narrow/desktop widths, fake providers/mocked HTTP, and warnings as errors. Live model quality, other browser engines, physical devices, and ANN-scale retrieval remain unverified. Keyword retrieval and opt-in memory defaults are unchanged; default semantic judgments remain uncertain without explicit verifier configuration.
+
+The memory ablation improves fixture coverage from 2/3 to 1.0 with increased provider calls and unchanged keyword retrieval work; it does not demonstrate live-model quality, cost, or latency improvements. See `benchmarks/README.md`.
 
 ## Commit rules
 
@@ -86,7 +88,7 @@ Continue with the existing FastAPI-served HTML/CSS/JavaScript UI. A framework mi
 
 **Milestone exit:** the complete saved-source research workflow is usable in the browser. Search remains keyword-based, and answer support is not yet semantically verified.
 
-## Milestone 2: measurable reliability and answer quality
+## Milestone 2: measurable reliability and answer quality — complete
 
 Each row is a separate proposed commit. Reassess estimates before implementation; split any row that would exceed the line limit.
 
@@ -103,7 +105,7 @@ Each row is a separate proposed commit. Reassess estimates before implementation
 
 **Milestone exit:** failures are reproducible, history has generation provenance, and retrieval/answer changes can be evaluated against labeled examples.
 
-## Milestone 3: broaden retrieval and ingestion
+## Milestone 3: broaden retrieval and ingestion — complete
 
 These slices depend on the preceding evaluation baseline. Choose concrete libraries and provider settings when implementing, rather than treating README candidates as installed dependencies.
 
@@ -121,7 +123,7 @@ These slices depend on the preceding evaluation baseline. Choose concrete librar
 | 26 | `feat: combine keyword and vector retrieval` | Add deterministic rank fusion, evidence deduplication, and answer-context integration. Compare against the keyword baseline before changing defaults. |
 | 27 | `feat: rerank retrieved evidence` | Add an optional bounded reranker behind an interface, with fallback behavior and evaluation showing whether it improves retrieval. |
 
-## Milestone 4: agentic research and compounding memory
+## Milestone 4: agentic research and compounding memory — complete
 
 Do this after the manually initiated research loop is useful and measured. Each bullet is a separate commit-sized capability; model/API/UI integration may need additional splits.
 
@@ -143,4 +145,4 @@ Plan separate commits for authenticated identity, workspace ownership/membership
 
 ## Recommended next action
 
-Milestone 1 is complete. When work on milestone 2 is authorized, begin with **09**, PostgreSQL integration tests in CI.
+Milestones 1–4 are implemented. Review the operations guide and measured evaluation limitations before choosing new work. Public or multi-user hosting still requires the separate identity, authorization, abuse-limit, deployment, and backup work listed above.
