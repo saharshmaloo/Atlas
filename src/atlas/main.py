@@ -18,6 +18,7 @@ from atlas.passages import router as passages_router
 from atlas.search import router as search_router
 from atlas.sources import UploadLimitMiddleware, router as sources_router
 from atlas.verification_api import router as verification_router
+from atlas.web_ingest import router as web_router
 from atlas.workspaces import router
 
 
@@ -44,6 +45,7 @@ def create_app(url: str | URL | None = None) -> FastAPI:
     app.include_router(router)
     app.include_router(sources_router)
     app.include_router(pdf_router)
+    app.include_router(web_router)
     app.include_router(passages_router)
     app.include_router(search_router)
     app.include_router(answers_router)

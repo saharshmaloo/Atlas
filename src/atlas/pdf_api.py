@@ -34,6 +34,6 @@ def upload_pdf(workspace_id: UUID, file: UploadFile, session: DatabaseSession):
 @router.get('/{source_id}/original')
 def download_original(workspace_id: UUID, source_id: UUID, session: DatabaseSession):
     source = find_source(workspace_id, source_id, session)
-    data = source.original_data if source.kind == 'pdf' else source.content.encode('utf-8')
-    return Response(data, media_type='application/pdf' if source.kind == 'pdf' else 'text/plain',
+    data = source.original_data if source.original_data is not None else source.content.encode('utf-8')
+    return Response(data, media_type='application/pdf' if source.kind == 'pdf' else 'application/octet-stream',
                     headers={'Content-Disposition': 'attachment; filename="source.pdf"' if source.kind == 'pdf' else 'attachment; filename="source.txt"'})
