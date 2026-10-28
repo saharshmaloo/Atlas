@@ -107,3 +107,47 @@ def test_upload_pending_navigation(browser_page):
     create_workspace(page, 'Other workspace')
     expect(page.locator('#source-list')).to_contain_text('No sources yet')
     expect(page.get_by_role('button', name='Upload source', exact=True)).to_be_enabled()
+
+
+def open_source(page, content='😀 Transactions\r\n\r\n  evidence <script>alert(1)</script>'):
+    upload(page, content.encode())
+    page.locator('#source-list a').first.click()
+    page.locator('#source-text').wait_for()
+    return content
+
+
+def test_source_text_passages_and_refresh(browser_page):
+    from playwright.sync_api import expect
+    page, _ = browser_page
+    create_workspace(page)
+    content = open_source(page, '😀 Transactions\r\n\r\n  evidence <script>alert(1)</script>' + 'x' * 12000)
+    assert page.locator('#source-text').text_content() == content
+    expect(page.locator('#passages')).to_contain_text('No passages yet')
+    page.get_by_role('button', name='Generate passages', exact=True).click()
+    expect(page.locator('#passages article')).to_have_count(10)
+    ids = page.locator('#passages article').evaluate_all('(items) => items.map(x => x.id)')
+    page.get_by_role('button', name='Generate passages', exact=True).click()
+    expect(page.locator('#research [role=status]')).to_contain_text('passages available')
+    assert page.locator('#passages article').evaluate_all('(items) => items.map(x => x.id)') == ids
+    page.get_by_role('button', name='Next passages', exact=True).click()
+    expect(page.locator('#passages')).to_contain_text('Passage 11')
+    page.reload()
+    assert page.locator('#source-text').text_content() == content
+    page.go_back()
+    expect(page.locator('#source-list a')).to_have_count(1)
+    page.go_forward()
+    expect(page.locator('#source-text')).to_be_visible()
+    page.goto(page.url.rsplit('/', 1)[0] + '/00000000-0000-0000-0000-000000000000')
+    expect(page.locator('#notice')).to_contain_text('could not be found')
+
+
+def test_source_stale_response(browser_page):
+    from playwright.sync_api import expect
+    page, _ = browser_page
+    create_workspace(page)
+    upload(page)
+    page.route('**/content', lambda route: None)
+    page.locator('#source-list a').click()
+    expect(page.locator('#research')).to_contain_text('Loading source')
+    page.get_by_role('link', name='All workspaces').click()
+    expect(page.locator('#library')).to_be_visible()

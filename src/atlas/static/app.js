@@ -15,7 +15,7 @@ async function api(path, options = {}) {
     throw new Error(response.status === 422 && typeof body.detail === 'string' ? body.detail :
       messages[response.status] || 'Atlas couldn’t complete that request. Please try again.');
   }
-  return response.json();
+  return options.text ? response.text() : response.json();
 }
 
 function notice(message) {
@@ -51,7 +51,9 @@ async function renderRoute() {
   $('cards').replaceChildren();
   $('library').hidden = $('detail').hidden = $('pagination').hidden = $('retry').hidden = true;
   notice('Loading your workspace…');
-  const match = location.hash.match(/^#\/workspaces\/([\da-f-]+)$/i);
+  const [path, query = ''] = location.hash.split('?');
+  const params = new URLSearchParams(query);
+  const match = path.match(/^#\/workspaces\/([\da-f-]+)(?:\/(sources)\/([\da-f-]+))?$/i);
   const detail = Boolean(match);
   $('breadcrumb').textContent = detail ? 'YOUR INVESTIGATION' : 'YOUR LIBRARY';
   $('view-title').textContent = detail ? 'Workspace' : 'Workspaces';
@@ -66,7 +68,7 @@ async function renderRoute() {
       $('workspace-id').textContent = workspace.id;
       document.title = `${workspace.name} · Atlas`;
       $('detail').hidden = false;
-      await research.open(workspace, signal);
+      await research.open(workspace, signal, match[2], match[3], params);
     } else {
       const items = await api(`/workspaces?limit=${PAGE_SIZE + 1}&offset=${offset}`, {signal});
       if (signal.aborted) return;
