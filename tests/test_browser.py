@@ -143,7 +143,7 @@ def test_source_text_passages_and_refresh(browser_page):
     expect(page.locator('#passages article')).to_have_count(10)
     ids = page.locator('#passages article').evaluate_all('(items) => items.map(x => x.id)')
     page.get_by_role('button', name='Generate passages', exact=True).click()
-    expect(page.locator('#research [role=status]')).to_contain_text('passages available')
+    expect(page.locator('#passage-status')).to_contain_text('passages available')
     assert page.locator('#passages article').evaluate_all('(items) => items.map(x => x.id)') == ids
     page.get_by_role('button', name='Next passages', exact=True).click()
     expect(page.locator('#passages')).to_contain_text('Passage 11')
@@ -427,7 +427,7 @@ def test_sources_pagination_and_error_recovery(browser_page):
     page.locator('#source-list a').first.click()
     page.route('**/passages', lambda route: route.fulfill(status=500, json={'detail': 'failure'}))
     page.get_by_role('button', name='Generate passages', exact=True).click()
-    expect(page.locator('#research [role=status]')).to_contain_text('try again')
+    expect(page.locator('#passage-status')).to_contain_text('try again')
     page.unroute('**/passages')
     page.get_by_role('button', name='Generate passages', exact=True).click()
     expect(page.locator('#passages article')).to_have_count(1)

@@ -172,7 +172,7 @@ const research = {
     if (signal.aborted) return;
     const original = node('pre', content, 'source-text'); original.id = 'source-text';
     const generate = node('button', 'Generate passages', 'primary');
-    const message = node('p'); message.setAttribute('role', 'status');
+    const message = node('p'); message.id = 'passage-status'; message.setAttribute('role', 'status');
     const passages = node('div'); passages.id = 'passages';
     const previous = node('button', 'Previous passages', 'secondary');
     const next = node('button', 'Next passages', 'secondary');

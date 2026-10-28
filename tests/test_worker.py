@@ -54,3 +54,19 @@ def test_answer_effect_is_idempotent_after_worker_checkpoint_loss(client, monkey
     assert run_once(client.app.state.engine)
     assert client.get(f'/workspaces/{ws}/answers').json() == answers
     assert client.get(f"{base}/{saved['id']}").json()['status'] == 'completed'
+
+
+def test_concurrent_workers_claim_only_one_lease(client):
+    from concurrent.futures import ThreadPoolExecutor
+    from threading import Barrier
+    ws, base, saved = setup_run(client)
+    barrier = Barrier(2)
+    def claim():
+        with Session(client.app.state.engine) as session:
+            barrier.wait(timeout=5)
+            return claim_task(session, UUID(ws), UUID(saved['id']))
+    with ThreadPoolExecutor(2) as pool:
+        results = list(pool.map(lambda _: claim(), range(2)))
+    assert sum(item is not None for item in results) == 1
+    run = client.get(f"{base}/{saved['id']}").json()
+    assert run['tasks'][0]['attempt'] == 1 and run['tool_calls'] == 1
