@@ -57,3 +57,10 @@ input { width: 100%; padding: 13px; background: white; border: 1px solid #bccbb3
 #form-error { color: #9b382c; }
 @media(max-width:800px) { .grid { grid-template-columns: repeat(2,minmax(0,1fr)); } .brand-note { display:none; } }
 @media(max-width:540px) { header { height: 70px; padding: 0 22px; } .header-note { display:none; } main { padding: 0 22px; } .intro { padding: 50px 0 40px; } h1 { font-size: 39px; } .desktop { display:none; } .grid { grid-template-columns: 1fr; } .section-head { align-items: flex-start; } .section-head button { font-size:12px; padding: 12px; white-space:nowrap; } .overview,dialog { padding: 25px; } dl { grid-template-columns:1fr; gap:8px; } dd { margin-bottom:10px; } footer { gap:20px; } }
+#research { margin-top: 32px; }
+#research h3 { font: 25px Georgia,serif; margin: 24px 0 16px; }
+#research form { max-width: 650px; margin-bottom: 24px; }
+#research button { margin: 12px 12px 0 0; }
+#research p { line-height: 1.7; overflow-wrap: anywhere; }
+.text-link { text-decoration: underline; color: #2c5143; overflow-wrap: anywhere; }
+#research nav { display: flex; flex-wrap: wrap; }

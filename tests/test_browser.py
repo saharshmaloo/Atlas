@@ -72,3 +72,38 @@ def test_workspace_mobile_navigation(browser_page):
     page.locator('#skip').focus()
     page.keyboard.press('Enter')
     expect(page.locator('#main')).to_be_focused()
+
+
+def upload(page, content=b'Transactions preserve evidence.', name='notes.txt'):
+    page.locator('#source-file').set_input_files({'name': name, 'mimeType': 'text/plain', 'buffer': content})
+    page.get_by_role('button', name='Upload source', exact=True).click()
+
+
+def test_upload_validation_and_persistence(browser_page):
+    from playwright.sync_api import expect
+    page, _ = browser_page
+    create_workspace(page)
+    expect(page.locator('#source-list')).to_contain_text('No sources yet')
+    for content, message in [(b'', 'nonempty'), (b'x' * 1048577, 'at most 1 MiB'),
+                             (b'\xff', 'UTF-8'), (b'   ', 'must contain text')]:
+        upload(page, content)
+        expect(page.locator('#research form')).to_contain_text(message)
+    upload(page, name='<img>.txt')
+    expect(page.locator('#source-list')).to_contain_text('<img>.txt')
+    page.reload()
+    expect(page.locator('#source-list')).to_contain_text('<img>.txt')
+    assert page.locator('#source-list b').count() == 0
+
+
+def test_upload_pending_navigation(browser_page):
+    from playwright.sync_api import expect
+    page, _ = browser_page
+    create_workspace(page)
+    page.route('**/sources', lambda route: None if route.request.method == 'POST' else route.continue_())
+    upload(page)
+    expect(page.get_by_role('button', name='Upload source', exact=True)).to_be_disabled()
+    page.get_by_role('link', name='All workspaces').click()
+    expect(page.locator('#library')).to_be_visible()
+    create_workspace(page, 'Other workspace')
+    expect(page.locator('#source-list')).to_contain_text('No sources yet')
+    expect(page.get_by_role('button', name='Upload source', exact=True)).to_be_enabled()

@@ -6,9 +6,14 @@ const date = (value) => new Date(value).toLocaleDateString(undefined, {year:'num
 async function api(path, options = {}) {
   const response = await fetch(path, options);
   if (!response.ok) {
-    if (response.status === 404) throw new Error('This workspace could not be found.');
-    if (response.status === 422) throw new Error('Please enter a workspace name of 1–200 characters.');
-    throw new Error('Atlas couldn’t complete that request. Please try again.');
+    const messages = {404: 'This workspace, source, or answer could not be found.',
+      413: 'Choose a file of at most 1 MiB.', 422: 'Please check the submitted values.',
+      503: 'The answer provider is not configured. Configure it on the server and retry.',
+      504: 'The answer provider timed out. Please try again.',
+      502: 'The answer provider returned an invalid response. Please try again.'};
+    const body = await response.json().catch(() => ({}));
+    throw new Error(response.status === 422 && typeof body.detail === 'string' ? body.detail :
+      messages[response.status] || 'Atlas couldn’t complete that request. Please try again.');
   }
   return response.json();
 }
@@ -61,6 +66,7 @@ async function renderRoute() {
       $('workspace-id').textContent = workspace.id;
       document.title = `${workspace.name} · Atlas`;
       $('detail').hidden = false;
+      await research.open(workspace, signal);
     } else {
       const items = await api(`/workspaces?limit=${PAGE_SIZE + 1}&offset=${offset}`, {signal});
       if (signal.aborted) return;
