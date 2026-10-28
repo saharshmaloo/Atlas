@@ -14,5 +14,6 @@ def test_browser_versions_preserve_original_source(browser_page):
     expect(page.locator('#source-text')).to_have_text('Revised evidence')
     assert page.url != old_url
     page.get_by_role('link', name='Version 1: notes.txt', exact=True).click()
+    expect(page.locator('#source-text')).to_have_text(original)
     assert page.locator('#source-text').text_content() == original
     expect(page.locator('#version-list a')).to_have_count(2)

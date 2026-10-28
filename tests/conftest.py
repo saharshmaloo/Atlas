@@ -46,3 +46,10 @@ def pytest_sessionfinish(session, exitstatus):
         reporter = session.config.pluginmanager.get_plugin('terminalreporter')
         if reporter and reporter.stats.get('skipped'):
             session.exitstatus = pytest.ExitCode.TESTS_FAILED
+
+
+@pytest.fixture(autouse=True)
+def no_live_model_configuration(monkeypatch):
+    """Tests must not inherit real credentials/configuration from a developer shell."""
+    for name in ('OPENAI_API_KEY', 'OPENAI_MODEL', 'ATLAS_EMBEDDING_MODEL', 'ATLAS_VERIFIER_MODEL', 'ATLAS_RERANKER'):
+        monkeypatch.delenv(name, raising=False)
