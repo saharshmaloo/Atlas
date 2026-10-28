@@ -1,0 +1,11 @@
+{
+  "version": "memory-v1",
+  "source": "Committed transactions survive crashes using a write ahead log.",
+  "seed_question": "transactions",
+  "remembered_claim": "Persistence uses a write ahead log.",
+  "tasks": [
+    {"question": "persistence", "answerable": true},
+    {"question": "transactions", "answerable": true},
+    {"question": "astronauts", "answerable": false}
+  ]
+}
