@@ -21,3 +21,21 @@ def test_versions_are_immutable_concurrent_and_scoped(client):
     other = client.post('/workspaces', json={'name': 'Other'}).json()['id']
     assert client.get(url.replace(ws, other)).status_code == 404
     assert client.post(url.replace(ws, other), files={'file': ('a.txt', b'foreign')}).status_code == 404
+
+
+def test_duplicate_detection_preserves_distinct_versions_and_workspace_privacy(client):
+    ws = client.post('/workspaces', json={'name': 'Duplicates'}).json()['id']
+    base = f'/workspaces/{ws}/sources'
+    def upload(url, content=b'same'):
+        return client.post(url, files={'file': ('same.txt', content)}).json()
+    first, second = upload(base), upload(base)
+    third = upload(f"{base}/{first['id']}/versions")
+    different = upload(base, b'different')
+    other = client.post('/workspaces', json={'name': 'Other'}).json()['id']
+    foreign = upload(base.replace(ws, other))
+    duplicates = client.get(f"{base}/{first['id']}/duplicates").json()
+    assert {row['id'] for row in duplicates} == {second['id'], third['id']}
+    assert len({first['id'], second['id'], third['id']}) == 3
+    assert different['id'] not in {row['id'] for row in duplicates}
+    assert client.get(f"{base.replace(ws, other)}/{foreign['id']}/duplicates").json() == []
+    assert client.get(f"{base.replace(ws, other)}/{first['id']}/duplicates").status_code == 404

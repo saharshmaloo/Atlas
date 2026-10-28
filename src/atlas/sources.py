@@ -176,3 +176,13 @@ def list_versions(workspace_id: UUID, source_id: UUID, session: DatabaseSession,
     source = find_source(workspace_id, source_id, session)
     return list(session.scalars(select(Source).where(Source.workspace_id == workspace_id,
         Source.document_id == source.document_id).order_by(Source.version).offset(offset).limit(50)))
+
+
+@router.get('/{source_id}/duplicates', response_model=list[SourceResponse])
+def find_duplicates(workspace_id: UUID, source_id: UUID, session: DatabaseSession,
+                    offset: Annotated[int, Query(ge=0)] = 0):
+    """Duplicates remain distinct immutable uploads/versions, scoped to a workspace."""
+    source = find_source(workspace_id, source_id, session)
+    return list(session.scalars(select(Source).where(Source.workspace_id == workspace_id,
+        Source.content_hash == source.content_hash, Source.id != source.id)
+        .order_by(Source.created_at, Source.id).offset(offset).limit(50)))
