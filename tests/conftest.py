@@ -38,3 +38,11 @@ def database():
 def client(database):
     with TestClient(create_app(database[0])) as client:
         yield client
+
+
+def pytest_sessionfinish(session, exitstatus):
+    """CI must never report success by silently skipping integration checks."""
+    if os.environ.get('STRICT_TESTS') == '1':
+        reporter = session.config.pluginmanager.get_plugin('terminalreporter')
+        if reporter and reporter.stats.get('skipped'):
+            session.exitstatus = pytest.ExitCode.TESTS_FAILED
