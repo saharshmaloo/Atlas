@@ -230,6 +230,7 @@ const research = {
     const base = `/workspaces/${workspace.id}`;
     if (kind === 'sources') return this.source(root, base, id, signal, params);
     if (kind === 'answers') return this.saved(root, base, id, signal);
+    if (kind === 'runs') return runView(root, base, id, signal);
     const heading = node('h3', 'Sources');
     const form = node('form'); form.id = 'upload-form';
     const label = node('label', 'Upload a UTF-8 .txt or text-based .pdf file (up to 1 MiB)');
@@ -301,5 +302,6 @@ const research = {
     if (!signal.aborted) this.question(root, base, signal);
     if (!signal.aborted) await this.search(root, base, params, signal);
     if (!signal.aborted) await this.history(root, base, signal);
+    if (!signal.aborted) await runLibrary(root, base, signal);
   },
 };
