@@ -59,7 +59,7 @@ def normalized(vector, dimensions):
 
 
 def embed_batch(provider, texts):
-    if not 0 < len(texts) <= 16 or any(not t.strip() or len(t) > 1000 for t in texts):
+    if not 0 < len(texts) <= 16 or any(not t or len(t) > 1000 for t in texts):
         raise EmbeddingError('Embedding input exceeds bounds')
     vectors = provider.embed(texts)
     if len(vectors) != len(texts):

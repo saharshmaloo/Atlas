@@ -38,3 +38,21 @@ def test_embedding_versions_persist_without_replacing_old_vectors(client):
         rows = list(session.scalars(select(PassageEmbedding)))
         assert len(rows) == 2
         assert session.get(PassageEmbedding, (pid, SPEC.id)).vector == [.6, .8]
+
+
+def test_openai_embedding_adapter_with_mock_http(monkeypatch):
+    import json
+    import httpx
+    from openai import OpenAI
+    from atlas import embeddings
+    requests = []
+    def respond(request):
+        payload = json.loads(request.content); requests.append(payload)
+        assert payload['input'] == ['evidence'] and payload['dimensions'] == 2
+        return httpx.Response(200, json={'object': 'list', 'model': 'fixed',
+            'data': [{'object': 'embedding', 'index': 0, 'embedding': [3, 4]}],
+            'usage': {'prompt_tokens': 1, 'total_tokens': 1}})
+    monkeypatch.setattr(embeddings, 'OpenAI', lambda **kwargs: OpenAI(
+        http_client=httpx.Client(transport=httpx.MockTransport(respond)), **kwargs))
+    assert embed_batch(embeddings.OpenAIEmbeddings(SPEC, 'test-only'), ['evidence']) == [[.6, .8]]
+    assert len(requests) == 1
