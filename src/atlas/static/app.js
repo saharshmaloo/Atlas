@@ -54,7 +54,7 @@ async function renderRoute() {
   notice('Loading your workspace…');
   const [path, query = ''] = location.hash.split('?');
   const params = new URLSearchParams(query);
-  const match = path.match(/^#\/workspaces\/([\da-f-]+)(?:\/(sources)\/([\da-f-]+))?$/i);
+  const match = path.match(/^#\/workspaces\/([\da-f-]+)(?:\/(sources|answers)\/([\da-f-]+))?$/i);
   const detail = Boolean(match);
   $('breadcrumb').textContent = detail ? 'YOUR INVESTIGATION' : 'YOUR LIBRARY';
   $('view-title').textContent = detail ? 'Workspace' : 'Workspaces';

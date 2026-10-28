@@ -7,6 +7,52 @@ const node = (tag, text, className) => {
 };
 const failure = (error) => error instanceof TypeError ? 'Could not reach Atlas. Please try again.' : error.message;
 const research = {
+  async saved(root, base, id, signal) {
+    root.textContent = 'Loading saved answer…';
+    const answer = await api(`${base}/answers/${id}`, {signal});
+    if (signal.aborted) return;
+    root.replaceChildren();
+    const back = node('a', '← Workspace history', 'back text-link'); back.href = `#${base}`;
+    root.append(back);
+    this.question(root, base, signal, answer);
+  },
+  async history(root, base, signal) {
+    const section = node('section'); section.id = 'history';
+    const list = node('div'); list.id = 'answer-history';
+    const previous = node('button', 'Previous answers', 'secondary');
+    const next = node('button', 'Next answers', 'secondary');
+    const pager = node('nav'); pager.setAttribute('aria-label', 'Answer history pages'); pager.append(previous, next);
+    section.append(node('h3', 'Saved answer history'), list, pager); root.append(section);
+    let offset = 0, listing;
+    async function load() {
+      listing?.abort(); listing = new AbortController();
+      const local = listing.signal;
+      previous.disabled = next.disabled = true; list.textContent = 'Loading history…';
+      try {
+        const items = await api(`${base}/answers?limit=11&offset=${offset}`, {signal: local});
+        if (signal.aborted || local.aborted) return;
+        list.replaceChildren(...items.slice(0, 10).map(answer => {
+          const row = node('p');
+          const link = node('a', answer.question, 'text-link'); link.href = `#${base}/answers/${answer.id}`;
+          const time = node('time', new Date(answer.created_at).toLocaleString()); time.dateTime = answer.created_at;
+          row.append(link, node('span', ` · ${answer.status === 'answered' ? 'Answered' : 'Insufficient evidence'} · `), time);
+          return row;
+        }));
+        if (!items.length) list.textContent = 'No saved answers yet. Ask a question to start your history.';
+        previous.disabled = offset === 0; next.disabled = items.length <= 10;
+      } catch (error) {
+        if (!signal.aborted && !local.aborted) {
+          list.replaceChildren(node('p', failure(error)));
+          const retry = node('button', 'Retry history', 'secondary'); retry.onclick = load; list.append(retry);
+        }
+      }
+    }
+    signal.addEventListener('abort', () => listing?.abort(), {once: true});
+    previous.onclick = () => { offset -= 10; load(); };
+    next.onclick = () => { offset += 10; load(); };
+    await load();
+  },
+
   citation(base, citation) {
     const dialog = $('evidence-dialog');
     const title = node('h2', citation.source_title); title.id = 'evidence-title';
@@ -38,7 +84,7 @@ const research = {
     });
     root.append(node('p', 'Citation IDs are validated against retrieved evidence. They do not establish that the evidence semantically supports a claim.'));
   },
-  question(root, base, signal) {
+  question(root, base, signal, saved) {
     const section = node('section'); section.id = 'questions';
     const form = node('form');
     const label = node('label', 'Question about saved evidence'); label.htmlFor = 'question';
@@ -48,6 +94,7 @@ const research = {
     const answer = node('div'); answer.id = 'answer';
     form.append(label, input, submit, message);
     section.append(node('h3', 'Ask your sources'), form, answer); root.append(section);
+    if (saved) { input.value = saved.question; this.answer(answer, base, saved); }
     let pending = false;
     input.oninput = () => input.setCustomValidity('');
     form.onsubmit = async event => {
@@ -60,8 +107,7 @@ const research = {
         const result = await api(`${base}/answers`, {method: 'POST', signal,
           headers: {'Content-Type': 'application/json'}, body: JSON.stringify({question})});
         if (signal.aborted) return;
-        message.textContent = 'Answer saved.';
-        this.answer(answer, base, result);
+        location.hash = `${base}/answers/${result.id}`;
       } catch (error) {
         if (!signal.aborted) message.textContent = failure(error);
       } finally { pending = false; submit.disabled = false; }
@@ -174,6 +220,7 @@ const research = {
     root.replaceChildren();
     const base = `/workspaces/${workspace.id}`;
     if (kind === 'sources') return this.source(root, base, id, signal, params);
+    if (kind === 'answers') return this.saved(root, base, id, signal);
     const heading = node('h3', 'Sources');
     const form = node('form'); form.id = 'upload-form';
     const label = node('label', 'Upload a UTF-8 .txt file (up to 1 MiB)');
@@ -242,5 +289,6 @@ const research = {
     await load();
     if (!signal.aborted) this.question(root, base, signal);
     if (!signal.aborted) await this.search(root, base, params, signal);
+    if (!signal.aborted) await this.history(root, base, signal);
   },
 };

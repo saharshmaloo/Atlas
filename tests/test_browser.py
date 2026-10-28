@@ -304,3 +304,60 @@ def test_citation_snapshot_and_keyboard_dismissal(browser_page):
     dialog.get_by_role('link', name='Open current source').click()
     expect(page.locator('#notice')).to_contain_text('could not be found')
     expect(dialog).not_to_be_visible()
+
+
+def test_history_reopen_snapshot_without_provider(browser_page):
+    from playwright.sync_api import expect
+    from sqlalchemy import update
+    from atlas.sources import Source
+    from atlas.answers import ProviderUnavailable
+    page, app = browser_page
+    prepare_evidence(page)
+    ask(page)
+    expect(page.locator('#answer .claim')).to_have_count(1)
+    saved_url = page.url
+    assert '/answers/' in saved_url
+    calls = app.state.test_provider.calls
+    with app.state.engine.begin() as connection:
+        connection.execute(update(Source).values(title='Changed title'))
+    app.state.test_provider.error = ProviderUnavailable()
+    page.reload()
+    expect(page.locator('#question')).to_have_value('How do transactions preserve evidence?')
+    page.locator('#answer .claim button').click()
+    expect(page.locator('#evidence-title')).to_have_text('notes.txt')
+    page.get_by_role('button', name='Close evidence').click()
+    page.get_by_role('link', name='Workspace history').click()
+    expect(page.locator('#answer-history a')).to_have_count(1)
+    page.locator('#answer-history a').click()
+    expect(page.locator('#answer .claim')).to_have_count(1)
+    page.go_back()
+    expect(page.locator('#answer-history a')).to_have_count(1)
+    page.go_forward()
+    expect(page.locator('#answer .claim')).to_have_count(1)
+    assert app.state.test_provider.calls == calls
+    foreign = page.request.post('/workspaces', data={'name': 'Foreign'}).json()['id']
+    answer_id = saved_url.rsplit('/', 1)[1]
+    page.goto(f'/#/workspaces/{foreign}/answers/{answer_id}')
+    expect(page.locator('#notice')).to_contain_text('could not be found')
+    page.goto(f'/#/workspaces/{foreign}/answers/00000000-0000-0000-0000-000000000000')
+    expect(page.locator('#notice')).to_contain_text('could not be found')
+
+
+def test_history_empty_pagination_and_abstention(browser_page):
+    from playwright.sync_api import expect
+    page, app = browser_page
+    create_workspace(page)
+    expect(page.locator('#answer-history')).to_contain_text('No saved answers yet')
+    base = page.url.split('#')[1]
+    for i in range(12):
+        response = page.request.post(f'{base}/answers', data={'question': f'Question {i}'})
+        assert response.status == 200
+    page.reload()
+    expect(page.locator('#answer-history a')).to_have_count(10)
+    expect(page.locator('#answer-history a').first).to_have_text('Question 11')
+    page.get_by_role('button', name='Next answers', exact=True).click()
+    expect(page.locator('#answer-history a')).to_have_count(2)
+    page.locator('#answer-history a').last.click()
+    expect(page.locator('#answer')).to_contain_text('Insufficient evidence')
+    expect(page.locator('#question')).to_have_value('Question 0')
+    assert app.state.test_provider.calls == 0
