@@ -53,6 +53,19 @@ def test_invalid_workspace_id(client):
     assert client.get("/workspaces/not-a-uuid").status_code == 422
 
 
+def test_list_workspaces_is_paginated_and_stable(client):
+    assert client.get("/workspaces").json() == []
+    created = [client.post("/workspaces", json={"name": name}).json() for name in ["Alpha", "Beta", "Gamma"]]
+    expected = sorted(created, key=lambda row: (row["created_at"], row["id"]), reverse=True)
+    response = client.get("/workspaces")
+    assert response.status_code == 200
+    assert response.json() == expected
+    assert client.get("/workspaces", params={"limit": 1, "offset": 1}).json() == expected[1:2]
+    assert client.get("/workspaces", params={"offset": 3}).json() == []
+    for params in [{"limit": 0}, {"limit": 101}, {"offset": -1}]:
+        assert client.get("/workspaces", params=params).status_code == 422
+
+
 def test_migration_round_trip(database):
     url, config = database
     command.check(config)

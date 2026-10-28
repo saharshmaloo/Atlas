@@ -1,9 +1,12 @@
 """ASGI entry point: uvicorn atlas.main:app."""
 
 from contextlib import asynccontextmanager
+from pathlib import Path
 from typing import Literal
 
 from fastapi import FastAPI
+from fastapi.responses import FileResponse
+from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 from sqlalchemy import create_engine
 from sqlalchemy.engine import URL
@@ -42,6 +45,13 @@ def create_app(url: str | URL | None = None) -> FastAPI:
     app.include_router(search_router)
     app.include_router(answers_router)
     app.add_middleware(UploadLimitMiddleware)
+    static = Path(__file__).parent / "static"
+    app.mount("/assets", StaticFiles(directory=static), name="assets")
+
+    @app.get("/", include_in_schema=False)
+    def workspace_ui():
+        return FileResponse(static / "index.html")
+
     return app
 
 

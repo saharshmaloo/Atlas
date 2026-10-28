@@ -19,7 +19,7 @@ python -m pip install -e '.[dev]'
 python -m uvicorn atlas.main:app --reload
 ```
 
-Visit <http://127.0.0.1:8000/docs> for interactive API documentation, or check liveness:
+Visit <http://127.0.0.1:8000/> for the workspace UI and <http://127.0.0.1:8000/docs> for interactive API documentation, or check liveness:
 
 ```sh
 curl --fail http://127.0.0.1:8000/health
@@ -53,6 +53,12 @@ curl --fail 'http://127.0.0.1:8000/workspaces/<returned-id>'
 ```
 
 Creation returns HTTP 201 with `id`, `name`, and a timezone-aware `created_at`. Names are trimmed and must contain 1–200 characters. Invalid input returns 422; an unknown UUID returns 404. Names need not be unique.
+
+### Workspace UI
+
+After starting PostgreSQL, applying migrations, and running the API, open <http://127.0.0.1:8000/>. Create a workspace, browse the paginated library, and open a saved workspace. Workspace URLs use `/#/workspaces/<id>` and can be bookmarked or refreshed. The UI provides empty, loading, error, and retry states, keyboard-accessible controls, and a layout for mobile and desktop screens.
+
+The frontend is plain HTML, CSS, and JavaScript packaged with the Python application; no Node installation, build step, external fonts, or separate frontend server is required. API calls use the same origin. This first screen covers workspace creation and browsing; source, question, citation, and history screens are subsequent changes. `GET /workspaces` lists workspaces newest first, with stable ID tie-breaking and `limit` (1–100, default 24) and `offset` (default 0) parameters.
 
 ### Text Sources
 

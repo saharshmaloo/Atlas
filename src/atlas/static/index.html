@@ -1,0 +1,55 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="color-scheme" content="light">
+  <title>Workspaces · Atlas</title>
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 40 40'%3E%3Crect width='40' height='40' rx='10' fill='%232c5143'/%3E%3Cpath d='M10 29 20 10 30 29M15 23h10' fill='none' stroke='%23fff' stroke-width='2'/%3E%3C/svg%3E">
+  <link rel="stylesheet" href="/assets/style.css">
+  <script src="/assets/app.js" defer></script>
+</head>
+<body>
+  <a id="skip" class="skip" href="#main">Skip to content</a>
+  <header>
+    <a class="brand" href="#/" aria-label="Atlas home"><span class="mark" aria-hidden="true">A</span>Atlas<span class="brand-note">RESEARCH WORKSPACE</span></a>
+    <span class="header-note"><span class="dot"></span> Research that compounds</span>
+  </header>
+  <main id="main" tabindex="-1">
+    <section class="intro">
+      <p class="eyebrow">A LITTLE CURIOSITY. A LASTING RECORD.</p>
+      <h1>A place for questions<br>worth keeping.</h1>
+      <p class="lede">Give each investigation a home. Keep your sources, evidence,<br class="desktop"> and discoveries together as your understanding grows.</p>
+    </section>
+    <section aria-labelledby="view-title">
+      <div class="section-head">
+        <div><p id="breadcrumb" class="eyebrow">YOUR LIBRARY</p><h2 id="view-title" tabindex="-1">Workspaces</h2></div>
+        <button id="new-workspace" class="primary"><span aria-hidden="true">＋</span> New workspace</button>
+      </div>
+      <div id="notice" role="status" aria-live="polite" hidden></div>
+      <button id="retry" class="secondary" hidden>Try again</button>
+      <div id="library">
+        <div id="cards" class="grid" aria-label="Research workspaces"></div>
+        <nav id="pagination" aria-label="Workspace pages" hidden>
+          <button id="previous" class="secondary">← Previous</button><span id="page"></span><button id="next" class="secondary">Next →</button>
+        </nav>
+      </div>
+      <article id="detail" hidden>
+        <a class="back" href="#/">← All workspaces</a>
+        <div class="overview"><p class="eyebrow">ROOM TO EXPLORE</p><h3>A home for your research.</h3><p>Your workspace is saved. Return here as your investigation takes shape.</p><dl><dt>Created</dt><dd id="created"></dd><dt>Workspace ID</dt><dd id="workspace-id" class="mono"></dd></dl></div>
+      </article>
+    </section>
+    <footer><span>Atlas</span><span>Build understanding. Keep the evidence.</span></footer>
+  </main>
+  <dialog id="create-dialog" aria-labelledby="dialog-title">
+    <form id="create-form">
+      <p class="eyebrow">START AN INVESTIGATION</p><h2 id="dialog-title">Make room for a question.</h2>
+      <p>Name a topic, a project, or something you want to understand.</p>
+      <label for="workspace-name">Workspace name</label>
+      <input id="workspace-name" name="name" maxlength="200" required autocomplete="off" placeholder="e.g. Distributed databases">
+      <p id="form-error" role="alert" hidden></p>
+      <div class="dialog-actions"><button type="button" id="cancel" class="secondary">Cancel</button><button type="submit" id="create" class="primary">Create workspace</button></div>
+    </form>
+  </dialog>
+</body>
+</html>
