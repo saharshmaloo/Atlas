@@ -2,6 +2,7 @@ from typing import Annotated, Callable
 from uuid import UUID
 from fastapi import APIRouter, Depends, HTTPException, Query
 from atlas.embeddings import get_embedding_provider
+from atlas.reranking import CandidateReranker, get_reranker, rerank_candidates
 from atlas.search import retrieve_passages
 from atlas.vector_search import vector_results
 from atlas.workspaces import DatabaseSession
@@ -42,7 +43,9 @@ router = APIRouter(prefix='/workspaces/{workspace_id}', tags=['hybrid retrieval'
 def hybrid_search(workspace_id: UUID, session: DatabaseSession,
     factory: Annotated[Callable, Depends(get_embedding_factory)],
     q: Annotated[str, Query(min_length=1, max_length=500)],
-    limit: Annotated[int, Query(ge=1, le=50)] = 10):
+    reranker: Annotated[CandidateReranker | None, Depends(get_reranker)],
+    limit: Annotated[int, Query(ge=1, le=50)] = 10, rerank: bool = False):
     if not q.strip() or '\0' in q: raise HTTPException(422, 'Enter a query without NUL characters')
     results, retrieval = hybrid_results(workspace_id, session, q.strip(), limit, factory)
-    return {'retrieval': retrieval, 'results': results}
+    results, ranking = rerank_candidates(q.strip(), results, reranker) if rerank else (results, 'disabled')
+    return {'retrieval': retrieval, 'reranker': ranking, 'results': results}

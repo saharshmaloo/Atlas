@@ -17,6 +17,7 @@ from sqlalchemy.orm import Mapped, mapped_column
 
 from atlas.hybrid import get_embedding_factory, hybrid_results
 from atlas.database import Base
+from atlas.reranking import CandidateReranker, get_reranker, rerank_candidates
 from atlas.search import SearchResult, retrieve_passages
 from atlas.sources import require_workspace
 from atlas.workspaces import DatabaseSession
@@ -34,6 +35,7 @@ Do not put citation markers in claim text; use passage_ids only."""
 
 class AnswerRequest(BaseModel):
     retrieval: Literal["keyword", "hybrid"] = "keyword"
+    rerank: bool = False
     question: Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=500)]
 
     @field_validator("question")
@@ -65,6 +67,7 @@ class GenerationProvenance(BaseModel):
     provider: str | None = None
     model: str | None = None
     retrieval: str = 'keyword-any-v1'
+    reranker: str | None = None
     prompt_version: str = 'evidence-v1'
     evidence_limit: int = MAX_EVIDENCE_PASSAGES
     context_limit: int = MAX_CONTEXT_CHARS
@@ -195,15 +198,16 @@ def generate_answer(
     body: AnswerRequest,
     session: DatabaseSession,
     provider: Annotated[AnswerProvider, Depends(get_answer_provider)],
-    embedding_factory=None,
+    embedding_factory=None, reranker=None,
 ) -> SavedAnswerResponse:
     started = monotonic()
     used_provider = False
     retrieval_mode = "keyword-any-v1"
+    ranking = None
 
     def finish(response):
         identity = getattr(provider, 'identity', {'provider': type(provider).__name__, 'model': None}) if used_provider else {}
-        response.provenance = GenerationProvenance(**identity, retrieval=retrieval_mode, duration_ms=int((monotonic() - started) * 1000))
+        response.provenance = GenerationProvenance(**identity, retrieval=retrieval_mode, reranker=ranking, duration_ms=int((monotonic() - started) * 1000))
         return save_answer(workspace_id, body.question, response, session)
 
     # Questions retrieve any matching term; the keyword-search endpoint retains its AND semantics.
@@ -213,6 +217,8 @@ def generate_answer(
             embedding_factory, vector_query=body.question)
     else:
         evidence = retrieve_passages(workspace_id, session, query, MAX_EVIDENCE_PASSAGES)
+    if body.rerank:
+        evidence, ranking = rerank_candidates(body.question, evidence, reranker)
     if not session.info.get('answer_submission'):
         session.rollback()  # Keyed requests hold a transaction lock until atomic persistence.
     while evidence and len(context_json(body.question, evidence)) > MAX_CONTEXT_CHARS:
@@ -246,23 +252,24 @@ def answer_question(
     workspace_id: UUID, body: AnswerRequest, session: DatabaseSession,
     provider: Annotated[AnswerProvider, Depends(get_answer_provider)],
     embedding_factory: Annotated[Callable, Depends(get_embedding_factory)],
+    reranker: Annotated[CandidateReranker | None, Depends(get_reranker)],
     idempotency_key: Annotated[str | None, Header(min_length=1, max_length=128)] = None,
 ):
     if idempotency_key is None:
-        return generate_answer(workspace_id, body, session, provider, embedding_factory)
+        return generate_answer(workspace_id, body, session, provider, embedding_factory, reranker)
     require_workspace(workspace_id, session)
     # PostgreSQL serializes retries, including concurrent requests, before any model call.
     session.execute(text('SELECT pg_advisory_xact_lock(hashtextextended(:key, 0))'),
                     {'key': f'{workspace_id}:{idempotency_key}'})
-    request_hash = sha256(body.model_dump_json().encode()).hexdigest()
+    request_hash = sha256(body.model_dump_json(exclude={'rerank'} if not body.rerank else set()).encode()).hexdigest()
     prior = session.get(AnswerSubmission, (workspace_id, idempotency_key))
     if prior:
-        if prior.question != body.question or (prior.request_hash is not None and prior.request_hash != request_hash) or (prior.request_hash is None and body.retrieval != 'keyword'):
+        if prior.question != body.question or (prior.request_hash is not None and prior.request_hash != request_hash) or (prior.request_hash is None and (body.retrieval != 'keyword' or body.rerank)):
             raise HTTPException(409, 'Idempotency key was already used for another question')
         return saved_response(session.get(AnswerRecord, prior.answer_id))
     session.info['answer_submission'] = True
     try:
-        result = generate_answer(workspace_id, body, session, provider, embedding_factory)
+        result = generate_answer(workspace_id, body, session, provider, embedding_factory, reranker)
         session.add(AnswerSubmission(workspace_id=workspace_id, key=idempotency_key,
                                      question=body.question, answer_id=result.id, request_hash=request_hash))
         session.commit()
