@@ -112,7 +112,9 @@ def execute_claim(session, claim, provider, embedding_factory=get_embedding_prov
             answer_id = next(UUID(item.output['answer_id']) for item in dependencies if item.output and 'answer_id' in item.output)
             result = check_support(claim.workspace_id, answer_id, session, verifier or get_claim_verifier(),
                                    idempotency_key=f'research-task:{claim.task_id}')
-            output = {'verification_id': str(result.id), 'answer_id': str(answer_id)}
+            from atlas.memory import remember_answer
+            claims = remember_answer(claim.workspace_id, answer_id, session, verification_id=result.id)
+            output = {'verification_id': str(result.id), 'answer_id': str(answer_id), 'claim_ids': [str(item.id) for item in claims]}
         elif claim.kind == 'search':
             output = {'passage_ids': [str(item.id) for item in retrieve_passages(claim.workspace_id, session, claim.question, 5)]}
             session.rollback()

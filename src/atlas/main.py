@@ -18,6 +18,7 @@ from atlas.hybrid import router as hybrid_router
 from atlas.answers import router as answers_router
 from atlas.database import database_url
 from atlas.pdf_api import router as pdf_router
+from atlas.memory import router as memory_router
 from atlas.passages import router as passages_router
 from atlas.planning import router as planning_router
 from atlas.run_control import router as control_router
@@ -67,6 +68,7 @@ def create_app(url: str | URL | None = None) -> FastAPI:
     app.include_router(planning_router)
     app.include_router(events_router)
     app.include_router(stream_router)
+    app.include_router(memory_router)
     app.include_router(verification_router)
     app.add_middleware(UploadLimitMiddleware)
     static = Path(__file__).parent / "static"

@@ -5,6 +5,7 @@ from atlas.answers import AnswerRecord  # noqa: F401 -- register model metadata
 from atlas.events import RunEvent  # noqa: F401
 from atlas.embeddings import EmbeddingProfile, PassageEmbedding  # noqa: F401
 from atlas.database import Base, database_url
+from atlas.memory import MemoryClaim, ClaimEvidence  # noqa: F401
 from atlas.passages import Passage  # noqa: F401 -- register model metadata
 from atlas.runs import ResearchRun, ResearchTask  # noqa: F401
 from atlas.sources import Source  # noqa: F401 -- register model metadata
