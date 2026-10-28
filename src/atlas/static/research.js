@@ -169,7 +169,7 @@ const research = {
     const previous = node('button', 'Previous passages', 'secondary');
     const next = node('button', 'Next passages', 'secondary');
     const pager = node('nav'); pager.setAttribute('aria-label', 'Passage pages'); pager.append(previous, next);
-    root.replaceChildren(back, node('h3', source.title), node('p', `Source version ${source.version} · ${source.kind}${source.kind === 'pdf' ? ' · Extracted Unicode text; offsets are not PDF byte offsets. Page spans: ' + source.locations.map(loc => `page ${loc.page}: ${loc.start_char}–${loc.end_char}`).join(', ') : ''}`), node('h4', source.kind === 'pdf' ? 'Extracted source text' : 'Original source text'), original,
+    root.replaceChildren(back, node('h3', source.title), node('p', `Source version ${source.version} · ${source.kind}${source.original_uri ? ' · ' + source.original_uri + ' · Retrieved ' + new Date(source.retrieved_at).toLocaleString() : ''}${source.kind === 'pdf' ? ' · Extracted Unicode text; offsets are not PDF byte offsets. Page spans: ' + source.locations.map(loc => `page ${loc.page}: ${loc.start_char}–${loc.end_char}`).join(', ') : ''}`), node('h4', source.kind === 'pdf' ? 'Extracted source text' : 'Original source text'), original,
       node('h3', 'Passages'), node('p', 'Offsets count Unicode code points; the end offset is exclusive.'),
       generate, message, passages, pager);
     let offset = Math.floor(Math.max(0, Number(params.get('position')) || 0) / 10) * 10;
@@ -239,6 +239,7 @@ const research = {
     const next = node('button', 'Next sources', 'secondary');
     pager.append(previous, next);
     root.append(heading, form, list, pager);
+    webUpload(root, base, signal);
     let offset = 0, pending = false, listing;
     async function load() {
       listing?.abort(); listing = new AbortController();
