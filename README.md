@@ -399,3 +399,13 @@ Atlas is also a hands-on exploration of three engineering areas:
 ## License
 
 License to be determined before public release.
+
+### Browser regression tests
+
+Install `python -m pip install -e '.[dev,browser]'` and run `python -m playwright install chromium` once. Start the disposable Compose test database as above, then run:
+
+```sh
+RUN_BROWSER_TESTS=1 TEST_DATABASE_URL=postgresql+psycopg://atlas:atlas@127.0.0.1:5433/atlas_test python -m pytest -q -W error
+```
+
+Browser tests start their own local HTTP server and migrate a unique temporary database per test. They use Chromium at a narrow viewport and require no personal data or provider credentials. Without `RUN_BROWSER_TESTS=1`, browser checks skip explicitly. The packaging test builds and installs a wheel in a temporary directory and checks its served assets outside the checkout.
